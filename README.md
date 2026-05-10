@@ -113,6 +113,10 @@ La documentación técnica actualizada vive en [`docs/functional/`](docs/functio
 
 > Los documentos en `docs/obsolete/` y `docs/plans/` son referencia histórica y pueden no estar actualizados.
 
+## Licencia
+
+Distribuido bajo la [MIT License](LICENSE).
+
 ## Notas Adicionales y Reglas
 
 - **Comandos de Artisan:** Nunca ejecutes `php artisan ...` directamente. Utiliza siempre la envoltura `./vendor/bin/sail artisan ...` para evitar problemas con drivers de bases de datos o extensiones de PHP faltantes.

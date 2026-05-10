@@ -11,7 +11,7 @@ MUDRAIS: Semantic Matchmaking Engine
 ## Short Description
 
 ```
-Multi-tenant SaaS that converts Discord user profiles into 2048-dim semantic vectors via AMD-accelerated Qwen3-VL-32B and Qdrant, enabling privacy-isolated partner matching across roleplay, book clubs, and gaming communities — no custom infrastructure required.
+Multi-tenant SaaS that converts Discord user profiles into 2048-dim semantic vectors via AMD-accelerated OSS 120B and Qdrant, enabling privacy-isolated partner matching across roleplay, book clubs, and gaming communities — no custom infrastructure required.
 ```
 
 ---
@@ -25,10 +25,10 @@ that miss nuance — narrative tone, writing style, thematic compatibility. MUDR
 that with a semantic matchmaking engine.
 
 When a user registers, their free-text input enters a multi-agent AI pipeline running on
-AMD MI300X via AMD Developer Cloud. A Gatekeeper agent (Llama 3.1-8B) extracts structured
-fields from natural language. A Context Optimizer agent (Qwen3-VL-32B) generates a
-semantically dense representation tuned for embedding. An embedding model then converts it
-into a 2048-dimensional float vector stored in Qdrant.
+AMD MI300X via AMD Developer Cloud. A Gatekeeper agent (OSS 20B) extracts structured fields
+from natural language. A Context Optimizer agent (OSS 120B) generates a semantically dense
+representation tuned for embedding. The nvidia/llama-nemotron-embed-vl-1b-v2 model then
+converts it into a 2048-dimensional float vector stored in Qdrant.
 
 The matchmaking engine runs cosine similarity search inside Qdrant, applying hard payload
 filters for "red lines" (absolute blockers) and strict guild-level tenant isolation — users
@@ -51,64 +51,64 @@ at scale.
 
 **AI Agents and Agentic Workflows**
 
-El núcleo del sistema es un pipeline multi-agente: Gatekeeper → ContextOptimizer → Embedding → Qdrant, cada agente con prompt y responsabilidad aislada.
+The core of the system is a multi-agent pipeline: Gatekeeper → ContextOptimizer → Embedding → Qdrant, each agent with an isolated prompt and a single responsibility.
 
 ---
 
 ## Technologies
 
-| Tag | Razón |
-|-----|-------|
-| `amd` | Infraestructura de cómputo base |
-| `AMD Developer Cloud` | Donde corre Qwen3-VL-32B en hardware MI300X |
-| `Qwen` | Modelo optimizer: `qwen/qwen3-vl-32b-instruct` |
-| `Qdrant` | Base de datos vectorial (colecciones, Named Vectors, payload filtering) |
-| `OpenRouter` | Gateway multi-LLM (Gatekeeper + Optimizer) |
+| Tag | Reason |
+|-----|--------|
+| `amd` | Core compute infrastructure |
+| `AMD Developer Cloud` | Runs OSS 120B and OSS 20B on AMD MI300X hardware |
+| `Qdrant` | Vector database (Named Vectors, 2048 dims, payload filtering) |
+| `OpenRouter` | Multi-LLM gateway (Gatekeeper + Optimizer) |
 
-> **Nota:** Si Qdrant u OpenRouter no aparecen como tags en lablab.ai, no es bloqueante — están detallados en la Long Description. Lo crítico es que `amd` y `AMD Developer Cloud` queden marcados para que el filtro de la track te encuentre.
+> **Note:** If Qdrant or OpenRouter are not available as tags on lablab.ai, they are detailed in the Long Description. The critical tags are `amd` and `AMD Developer Cloud` — those must be marked so the track filter picks up the submission.
 
 ---
 
-## Stack técnico completo (para la descripción o preguntas de jueces)
+## Full Technical Stack (for judges)
 
-| Capa | Tecnología |
-|------|-----------|
-| Backend | PHP 8.x, Laravel 11+ |
-| Base de datos relacional | PostgreSQL |
-| Base de datos vectorial | Qdrant (2048 dims, Named Vectors) |
-| Admin panel | Filament |
-| LLM Gatekeeper | Llama 3.1-8B (extracción estructurada) |
-| LLM Optimizer | Qwen3-VL-32B en AMD MI300X |
+| Layer | Technology |
+|-------|-----------|
+| Compute Infrastructure | AMD Instinct MI300X (AMD Developer Cloud) |
+| Backend Framework | PHP 8.x / Laravel 11 |
+| Vector Database | Qdrant (Named Vectors, 2048 dims) |
+| Relational Database | PostgreSQL |
+| LLM Gatekeeper | OSS 20B — structured extraction from natural language |
+| LLM Optimizer | OSS 120B — semantic expansion and embedding-ready output |
 | Embeddings | nvidia/llama-nemotron-embed-vl-1b-v2 |
-| Moderación | OpenAI Moderation API |
-| Transport | Discord (slash commands, modales, webhooks) |
+| AI Gateway | OpenRouter |
+| Admin Interface | Filament |
+| Transport | Discord (slash commands, modals, webhooks) |
 
 ---
 
-## Pipeline resumido (para demos o diagramas)
+## Pipeline Overview (for demos and diagrams)
 
 ```
-Usuario Discord
+Discord User
     │
-    ▼ /registro (modal)
-[GatekeeperAgent — Llama 3.1-8B]
-  Texto libre → JSON estructurado (campos del perfil)
+    ▼ /register (modal)
+[GatekeeperAgent — OSS 20B @ AMD MI300X]
+  Free-text input → structured JSON (profile fields)
     │
-    ▼ IndexAvatarJob (cola async)
-[ContextOptimizerAgent — Qwen3-VL-32B @ AMD MI300X]
-  JSON semántico → optimized_text_en + semantic_tag_query
+    ▼ IndexAvatarJob (async queue)
+[ContextOptimizerAgent — OSS 120B @ AMD MI300X]
+  Semantic JSON → optimized_text_en + semantic_tag_query
     │
     ▼
 [EmbeddingGateway — llama-nemotron-embed]
-  Texto → vector float[2048]
+  Text → float[2048] vector
     │
     ▼
 [Qdrant — matchmaking_hub]
-  Upsert con payload: guild_id, red_lines[], archetype_id
+  Upsert with payload: guild_id, red_lines[], archetype_id
     │
-    ▼ /buscar-pareja
+    ▼ /find-partner
 [MatchmakingService]
   Cosine search + hard filters (red_lines, guild_id) + soft scoring
     │
-    ▼ Resultados rankeados en Discord
+    ▼ Ranked results delivered in Discord
 ```
