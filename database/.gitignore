@@ -1,0 +1,3 @@
+*.sqlite*
+/seeders/tech_profile_avatars.json
+/seeders/test_tech_profiles.json

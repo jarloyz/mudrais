@@ -1,0 +1,120 @@
+services:
+    laravel.test:
+        build:
+            context: './docker/8.5'
+            dockerfile: Dockerfile
+            args:
+                WWWGROUP: '${WWWGROUP}'
+        image: 'sail-8.5/app'
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        ports:
+            - '${APP_PORT:-80}:80'
+            - '${VITE_PORT:-5173}:${VITE_PORT:-5173}'
+        environment:
+            WWWUSER: '${WWWUSER}'
+            LARAVEL_SAIL: 1
+            XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
+            XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
+            PHP_IDE_CONFIG: "serverName=DockerWSL"
+            IGNITION_LOCAL_SITES_PATH: '${PWD}'
+        volumes:
+            - '.:/var/www/html'
+        networks:
+            - sail
+        depends_on:
+            pgsql:
+                condition: service_healthy
+            qdrant:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+
+    # ── Servicios de infraestructura ──────────────────────────────────────────
+
+    pgsql:
+        image: 'postgres:15-alpine'
+        ports:
+            - '${FORWARD_DB_PORT:-5432}:5432'
+        environment:
+            PGPASSWORD: '${DB_PASSWORD:-password}'
+            POSTGRES_DB: '${DB_DATABASE}'
+            POSTGRES_USER: '${DB_USERNAME}'
+            POSTGRES_PASSWORD: '${DB_PASSWORD:-password}'
+        volumes:
+            - 'sail-pgsql:/var/lib/postgresql/data'
+            - './vendor/laravel/sail/database/pgsql/create-testing-database.sql:/docker-entrypoint-initdb.d/10-create-testing-database.sql'
+        networks:
+            - sail
+        healthcheck:
+            test:
+                - CMD
+                - pg_isready
+                - '-q'
+                - '-d'
+                - '${DB_DATABASE}'
+                - '-U'
+                - '${DB_USERNAME}'
+            retries: 3
+            timeout: 5s
+
+    qdrant:
+        image: 'qdrant/qdrant:latest'
+        ports:
+            - '${FORWARD_QDRANT_PORT:-6333}:6333'       # REST API + Web Dashboard → http://localhost:6333/dashboard
+            - '${FORWARD_QDRANT_GRPC_PORT:-6334}:6334'  # gRPC
+        volumes:
+            - 'sail-qdrant:/qdrant/storage'
+        networks:
+            - sail
+        healthcheck:
+            test:
+                - CMD
+                - bash
+                - -c
+                - "echo > /dev/tcp/localhost/6333"
+            interval: 5s
+            retries: 5
+            timeout: 5s
+            start_period: 10s
+
+    redis:
+        image: 'redis:alpine'
+        ports:
+            - '${FORWARD_REDIS_PORT:-6379}:6379'
+        volumes:
+            - 'sail-redis:/data'
+        networks:
+            - sail
+        healthcheck:
+            test:
+                - CMD
+                - redis-cli
+                - ping
+            retries: 3
+            timeout: 5s
+
+    ngrok:
+        image: 'ngrok/ngrok:latest'
+        restart: unless-stopped
+        command:
+            - http
+            - 'laravel.test:80'
+        environment:
+            NGROK_AUTHTOKEN: '${NGROK_TOKEN}'
+        depends_on:
+            - laravel.test
+        networks:
+            - sail
+
+networks:
+    sail:
+        driver: bridge
+
+volumes:
+    sail-pgsql:
+        driver: local
+    sail-qdrant:
+        driver: local
+    sail-redis:
+        driver: local

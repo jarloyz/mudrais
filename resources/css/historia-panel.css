@@ -1,0 +1,148 @@
+@theme {
+    --font-display: 'Space Grotesk', 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+    :root {
+        --hp-panel-border: color-mix(in oklab, white 72%, transparent);
+        --hp-card-border: color-mix(in oklab, #d6d3d1 72%, transparent);
+        --hp-card-bg: color-mix(in oklab, white 96%, #f5f5f4 4%);
+        --hp-card-shadow: 0 18px 46px -28px rgba(28, 25, 23, 0.28);
+    }
+
+    .dark {
+        --hp-panel-border: color-mix(in oklab, white 12%, transparent);
+        --hp-card-border: color-mix(in oklab, white 10%, transparent);
+        --hp-card-bg: color-mix(in oklab, #0f172a 82%, white 4%);
+        --hp-card-shadow: 0 24px 60px -30px rgba(2, 6, 23, 0.82);
+    }
+}
+
+@layer components {
+    .hp-hero {
+        @apply overflow-hidden rounded-[2rem] border p-6 shadow-sm ring-1 ring-black/5 dark:ring-white/10;
+        border-color: var(--hp-panel-border);
+    }
+
+    .hp-hero-amber {
+        @apply bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_rgba(15,23,42,0.94)_38%,_rgba(2,6,23,1)_100%)];
+    }
+
+    .hp-hero-sky {
+        @apply bg-gradient-to-br from-sky-50 via-white to-cyan-50 dark:bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.18),_rgba(15,23,42,0.94)_40%,_rgba(2,6,23,1)_100%)];
+    }
+
+    .hp-hero-emerald {
+        @apply bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.18),_rgba(15,23,42,0.94)_40%,_rgba(2,6,23,1)_100%)];
+    }
+
+    .hp-hero-fuchsia {
+        @apply bg-gradient-to-br from-fuchsia-50 via-white to-rose-50 dark:bg-[radial-gradient(circle_at_top_left,_rgba(217,70,239,0.16),_rgba(15,23,42,0.94)_42%,_rgba(2,6,23,1)_100%)];
+    }
+
+    .hp-kicker {
+        @apply inline-flex rounded-full border bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.28em] backdrop-blur dark:bg-white/10;
+        border-color: color-mix(in oklab, currentColor 24%, transparent);
+        color: color-mix(in oklab, currentColor 100%, transparent);
+    }
+
+    .hp-card {
+        @apply rounded-[1.75rem] border p-5;
+        border-color: var(--hp-card-border);
+        background: var(--hp-card-bg);
+        box-shadow: var(--hp-card-shadow);
+    }
+
+    .hp-card-compact {
+        @apply p-4;
+    }
+
+    .hp-stat {
+        @apply rounded-2xl border p-4 backdrop-blur;
+        border-color: var(--hp-panel-border);
+        background: color-mix(in oklab, white 82%, transparent);
+    }
+
+    .dark .hp-stat {
+        background: color-mix(in oklab, white 9%, transparent);
+    }
+
+    .hp-input,
+    .hp-select,
+    .hp-textarea {
+        @apply w-full rounded-2xl border px-3 py-2.5 text-sm text-stone-900 outline-none transition dark:text-white;
+        border-color: color-mix(in oklab, #d6d3d1 88%, transparent);
+        background: color-mix(in oklab, #fafaf9 92%, white 8%);
+    }
+
+    .hp-textarea {
+        @apply px-4 py-3 leading-7;
+    }
+
+    .dark .hp-input,
+    .dark .hp-select,
+    .dark .hp-textarea {
+        border-color: color-mix(in oklab, white 10%, transparent);
+        background: color-mix(in oklab, #0f172a 88%, white 3%);
+    }
+
+    .hp-input:focus,
+    .hp-select:focus,
+    .hp-textarea:focus {
+        @apply ring-2 ring-amber-400/40;
+        border-color: color-mix(in oklab, #f59e0b 42%, transparent);
+    }
+
+    .hp-button-amber {
+        @apply inline-flex items-center justify-center rounded-2xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-500;
+    }
+
+    .hp-button-sky {
+        @apply inline-flex items-center justify-center rounded-2xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500;
+    }
+
+    .hp-button-emerald {
+        @apply inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500;
+    }
+
+    .hp-button-fuchsia {
+        @apply inline-flex items-center justify-center rounded-2xl bg-fuchsia-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fuchsia-500;
+    }
+
+    .hp-button-dark {
+        @apply inline-flex items-center justify-center rounded-2xl bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-stone-800 dark:bg-white/10 dark:hover:bg-white/15;
+    }
+
+    .hp-button-secondary {
+        @apply inline-flex items-center justify-center rounded-2xl border px-4 py-2.5 text-sm font-medium text-stone-700 transition dark:text-slate-200;
+        border-color: color-mix(in oklab, #d6d3d1 88%, transparent);
+        background: color-mix(in oklab, white 68%, transparent);
+    }
+
+    .dark .hp-button-secondary {
+        border-color: color-mix(in oklab, white 10%, transparent);
+        background: color-mix(in oklab, white 4%, transparent);
+    }
+
+    .hp-button-secondary:hover {
+        background: color-mix(in oklab, #f5f5f4 86%, white 14%);
+    }
+
+    .dark .hp-button-secondary:hover {
+        background: color-mix(in oklab, white 8%, transparent);
+    }
+
+    .hp-soft {
+        @apply rounded-[1.35rem] border p-4;
+        border-color: var(--hp-card-border);
+        background: color-mix(in oklab, #fafaf9 88%, white 12%);
+    }
+
+    .dark .hp-soft {
+        background: color-mix(in oklab, white 4%, transparent);
+    }
+
+    .hp-code {
+        @apply overflow-x-auto rounded-[1.4rem] bg-stone-950 px-4 py-4 text-xs text-stone-100;
+    }
+}

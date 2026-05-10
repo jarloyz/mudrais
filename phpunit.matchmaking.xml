@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Suite de pruebas del sistema de Matchmaking (Archetypes, Guilds, Optimizers, Tags, Registro). -->
+<!-- Uso: ./vendor/bin/sail test -c phpunit.matchmaking.xml -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Matchmaking">
+            <!-- Core matchmaking domain -->
+            <directory>tests/Unit/Matchmaking</directory>
+
+            <!-- AI agents relevantes a matchmaking -->
+            <file>tests/Unit/Ai/ArchetypeOptimizerAgentTest.php</file>
+            <file>tests/Unit/Ai/VaultOptimizerAgentTest.php</file>
+            <file>tests/Unit/Ai/OptimizerProfileAgentTest.php</file>
+            <file>tests/Unit/Ai/AnthropicChatGatewayTest.php</file>
+            <file>tests/Unit/Ai/OpenRouterChatGatewayTest.php</file>
+            <file>tests/Unit/Ai/ProfileTemplateParserTest.php</file>
+            <file>tests/Unit/Ai/V2SceneTypeResolverTest.php</file>
+
+            <!-- Application layer matchmaking -->
+            <file>tests/Unit/Application/PlayerArchetypeProfileTest.php</file>
+            <file>tests/Unit/Application/PlayerArchetypeProfileTagsTest.php</file>
+            <file>tests/Unit/Application/PlayerDeductCoinsTest.php</file>
+            <file>tests/Unit/Application/RegistroGatekeeperTest.php</file>
+            <file>tests/Unit/Application/RegistroStep1ValidationTest.php</file>
+            <file>tests/Unit/Application/Services/TagNormalizerServiceTest.php</file>
+            <file>tests/Unit/Application/Services/QdrantLineageTest.php</file>
+
+            <!-- Infrastructure matchmaking agents -->
+            <file>tests/Unit/Infrastructure/Ai/Agents/StyleOptimizerAgentTest.php</file>
+            <file>tests/Unit/Infrastructure/Ai/Agents/ContextOptimizerAgentTest.php</file>
+            <file>tests/Unit/Infrastructure/Ai/Agents/LaravelQaLoopRunnerTest.php</file>
+            <directory>tests/Unit/Infrastructure/Persistence</directory>
+
+            <!-- Models, traits, support -->
+            <directory>tests/Unit/Models</directory>
+            <directory>tests/Unit/Traits</directory>
+            <directory>tests/Unit/Support</directory>
+            <directory>tests/Unit/Middleware</directory>
+            <file>tests/Unit/UuidV7Test.php</file>
+
+            <!-- Feature: Matchmaking -->
+            <directory>tests/Feature/ArchetypeDraft</directory>
+            <directory>tests/Feature/Auth</directory>
+            <directory>tests/Feature/Discord</directory>
+            <!-- Feature/Api: solo archivos matchmaking (excluye SceneState, TimelineForking, V2*) -->
+            <file>tests/Feature/Api/DiscordCommandsTest.php</file>
+            <file>tests/Feature/Api/GuildLifecycleControllerTest.php</file>
+            <directory>tests/Feature/Repositories</directory>
+            <directory>tests/Feature/Application</directory>
+            <file>tests/Feature/Services/GatekeeperProfileServiceTest.php</file>
+            <file>tests/Feature/Infrastructure/Ai/ThinkingAiBindingTest.php</file>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_URL" value="http://localhost"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_URL" value=""/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+    </php>
+</phpunit>
