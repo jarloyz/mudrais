@@ -76,11 +76,14 @@ class OpenRouterChatGateway implements AiChatGateway
         if (array_key_exists('metadata', $options) && is_array($options['metadata']) && $options['metadata'] !== []) {
             $payload['metadata'] = $options['metadata'];
         }
-        if (array_key_exists('thinking', $options) && is_array($options['thinking']) && ($options['thinking']['type'] ?? '') === 'enabled') {
-            $payload['thinking'] = $options['thinking'];
+        $reasoningEnabled = (bool) (($options['reasoning'] ?? [])['enabled'] ?? false);
+        $payload['reasoning'] = ['enabled' => $reasoningEnabled];
+        if ($reasoningEnabled) {
             $payload['temperature'] = 1.0;
-            $budgetTokens = (int) ($options['thinking']['budget_tokens'] ?? 0);
-            $payload['max_tokens'] = $maxOutputTokens + $budgetTokens;
+            $budgetTokens = (int) ($options['reasoning']['budget_tokens'] ?? 0);
+            if ($budgetTokens > 0) {
+                $payload['max_tokens'] = $maxOutputTokens + $budgetTokens;
+            }
         }
 
         $logger->debug('OpenRouter request prepared', [

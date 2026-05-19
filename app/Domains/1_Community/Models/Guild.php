@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Domains\Narrative\Models\Vault;
+use App\Models\DiscordBot;
 
 class Guild extends Model
 {
@@ -14,6 +15,7 @@ class Guild extends Model
     protected $fillable = [
         'discord_guild_id',
         'owner_discord_id',
+        'onboarding_channel_id',
         'stripe_id',
         'is_active',
         'plan_tier',
@@ -55,5 +57,20 @@ class Guild extends Model
     public function hasQuotaAvailable(): bool
     {
         return $this->activeProfileCount() < $this->profile_quota;
+    }
+
+    public function bots(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            DiscordBot::class,
+            'guild_bots',
+            'guild_id',
+            'discord_bot_id'
+        )->withPivot('installed_at')->withTimestamps();
+    }
+
+    public function hasBotTier(int $tier): bool
+    {
+        return $this->bots()->where('tier', '>=', $tier)->where('is_active', true)->exists();
     }
 }

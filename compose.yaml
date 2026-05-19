@@ -107,6 +107,29 @@ services:
         networks:
             - sail
 
+    voice-bridge:
+        build:
+            context: './voice-bridge'
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        environment:
+            DISCORD_BOT_TOKEN_GAMMA: '${DISCORD_BOT_TOKEN_GAMMA}'
+            DISCORD_APP_ID_GAMMA: '${DISCORD_APP_ID_GAMMA}'
+            LARAVEL_BASE_URL: '${APP_URL}'
+            VOICE_BRIDGE_SECRET: '${DISCORD_BOT_TOKEN_GAMMA}'
+            SPEECHMATICS_API_KEY: '${SPEECHMATICS_API_KEY}'
+            SPEECHMATICS_LANGUAGE: '${SPEECHMATICS_LANGUAGE:-es}'
+            LOG_LEVEL: '${LOG_LEVEL:-info}'
+            REDIS_HOST: '${REDIS_HOST:-redis}'
+            REDIS_PORT: '${REDIS_PORT:-6379}'
+            REDIS_PASSWORD: '${REDIS_PASSWORD:-}'
+            REDIS_DB: '${REDIS_DB:-0}'
+        networks:
+            - sail
+        depends_on:
+            laravel.test:
+                condition: service_started
+
 networks:
     sail:
         driver: bridge

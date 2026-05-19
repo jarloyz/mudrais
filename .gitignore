@@ -88,3 +88,4 @@ database/seeders/test_qdrant.json
 /docs/prompt-flow.md
 /docs/purge_player_command.md
 /docs/registro_flow.md
+/voice-bridge/node_modules/*

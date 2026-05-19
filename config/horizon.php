@@ -17,6 +17,7 @@ return [
 
     'waits' => [
         'redis:high'    => 30,
+        'redis:voice'   => 30,
         'redis:index'   => 60,
         'redis:tags'    => 60,
         'redis:default' => 90,
@@ -83,6 +84,21 @@ return [
             'nice'                => 0,
         ],
 
+        // Voz: ProcessVoiceInterviewTurnJob — real-time, timeout corto, pocos procesos
+        'supervisor-voice' => [
+            'connection'          => 'redis',
+            'queue'               => ['voice'],
+            'balance'             => 'simple',
+            'minProcesses'        => 2,
+            'maxProcesses'        => 6,
+            'maxTime'             => 3600,
+            'maxJobs'             => 0,
+            'memory'              => 128,
+            'tries'               => 2,
+            'timeout'             => 65,
+            'nice'                => 0,
+        ],
+
         // General: high (Discord urgente), default, sync — jobs rápidos
         'supervisor-general' => [
             'connection'          => 'redis',
@@ -102,17 +118,19 @@ return [
         ],
     ],
 
-    // min total: 6+10+2 = 18 | max total: 25+60+4 = 89
+    // min total: 6+10+2+2 = 20 | max total: 25+60+4+6 = 95
     'environments' => [
         'production' => [
             'supervisor-index'   => ['minProcesses' => 6,  'maxProcesses' => 25],
             'supervisor-tags'    => ['minProcesses' => 10, 'maxProcesses' => 60],
             'supervisor-general' => ['minProcesses' => 2,  'maxProcesses' => 4],
+            'supervisor-voice'   => ['minProcesses' => 2,  'maxProcesses' => 6],
         ],
         'local' => [
             'supervisor-index'   => ['minProcesses' => 6,  'maxProcesses' => 25],
             'supervisor-tags'    => ['minProcesses' => 10, 'maxProcesses' => 60],
             'supervisor-general' => ['minProcesses' => 2,  'maxProcesses' => 4],
+            'supervisor-voice'   => ['minProcesses' => 2,  'maxProcesses' => 6],
         ],
     ],
 

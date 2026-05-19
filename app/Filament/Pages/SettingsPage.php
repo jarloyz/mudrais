@@ -14,6 +14,7 @@ use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
@@ -55,6 +56,8 @@ class SettingsPage extends Page
     // ── Preset management (scope global) ────────────────────────────────────
     public string $presetName = '';
     public string $selectedPresetId = '';
+    /** Slug del proveedor LLM global (campo provider de AgentConfig). */
+    public string $globalProviderSlug = '';
     /**
      * @var array<int, array{id:string,name:string,active:bool}>
      */
@@ -80,6 +83,16 @@ class SettingsPage extends Page
      */
     public array $agentProviders = [];
     /**
+     * @var array<string, bool>  agentKey → reasoning habilitado
+     */
+    public array $agentReasoning = [];
+    /**
+     * @var array<string, int>  agentKey → budget_tokens para reasoning
+     */
+    public array $agentReasoningBudget = [];
+    /** Driver del guard de safety: 'llm' | 'openai_moderation' */
+    public string $safetyDriver = 'llm';
+    /**
      * @var array<string, string>
      */
     public array $openRouterModelOptions = [];
@@ -100,7 +113,9 @@ class SettingsPage extends Page
         $catalog = app(AgentCatalog::class);
         $this->agentCatalog = $catalog->all();
         $this->agentModels = $catalog->modelMap();
-        $this->agentProviders = array_fill_keys(array_column($this->agentCatalog, 'key'), '');
+        $this->agentProviders      = array_fill_keys(array_column($this->agentCatalog, 'key'), '');
+        $this->agentReasoning       = array_fill_keys(array_column($this->agentCatalog, 'key'), false);
+        $this->agentReasoningBudget = array_fill_keys(array_column($this->agentCatalog, 'key'), 8000);
         $this->providerOptions = Schema::hasTable('ai_providers')
             ? AiProvider::slugOptions()
             : ['openrouter' => 'OpenRouter'];
@@ -123,6 +138,9 @@ class SettingsPage extends Page
             $this->openRouterModelLookup,
         );
         $this->refreshGlobalPresetsList();
+        if (Schema::hasTable('agent_configs')) {
+            $this->globalProviderSlug = (string) (AgentConfig::globalInstance()->provider ?? '');
+        }
 
         if (Schema::hasTable('players')) {
             $this->availableUsers = Player::query()
@@ -166,11 +184,24 @@ class SettingsPage extends Page
     {
         $catalog = app(OpenRouterModelCatalog::class)->lookup(forceRefresh: $forceRefresh);
 
+        // Marcar modelos de OpenRouter con source para distinguirlos en el combobox.
+        foreach ($catalog as &$entry) {
+            $entry['source'] = 'openrouter';
+        }
+        unset($entry);
+
         if (Schema::hasTable('ai_providers')) {
-            // Usar el slug como clave de catálogo para evitar colisión con IDs de OpenRouter.
-            // El campo 'id' conserva el model ID real que se envía al API.
-            AiProvider::query()->whereNotNull('default_model')->get()
-                ->each(function (AiProvider $provider) use (&$catalog): void {
+            AiProvider::query()->get()
+                ->each(function (AiProvider $provider) use (&$catalog, $forceRefresh): void {
+                    // Modelos nativos con driver google: poblar desde la API de Google.
+                    if ($provider->driver === 'google' && filled($provider->api_key)) {
+                        foreach ($this->fetchGoogleModels($provider, $forceRefresh) as $key => $model) {
+                            $catalog[$key] = $model;
+                        }
+                        return;
+                    }
+
+                    // Cualquier otro provider con default_model: entrada única en el catálogo.
                     $modelId = trim((string) ($provider->default_model ?? ''));
                     if ($modelId === '') {
                         return;
@@ -185,6 +216,8 @@ class SettingsPage extends Page
                         'price_label'           => 'Configurado',
                         'option_label'          => $provider->name . ' · ' . $modelId,
                         'provider_slug'         => $provider->slug,
+                        'provider_name'         => $provider->name,
+                        'source'                => 'direct',
                     ];
                 });
         }
@@ -286,7 +319,9 @@ class SettingsPage extends Page
             }
 
             $criteria = match ($this->configScope) {
-                'global' => ['scope' => 'global'],
+                // 'active' => true garantiza que updateOrCreate apunta al preset activo,
+                // no al primer registro global que encuentre (puede haber múltiples presets).
+                'global' => ['scope' => 'global', 'active' => true],
                 'player' => ['scope' => 'player', 'player_id' => $this->normalizeUserId()],
                 'vault'  => ['scope' => 'vault',  'vault_id'  => trim($this->vaultId)],
                 'scene'  => ['scope' => 'scene',  'scene_id'  => trim($this->sceneId)],
@@ -296,6 +331,10 @@ class SettingsPage extends Page
 
             if ($this->configScope === 'global') {
                 Cache::forget('ai_active_provider');
+                $newSlug = trim($this->globalProviderSlug);
+                if ($newSlug !== '') {
+                    Cache::forget("ai_provider_{$newSlug}");
+                }
             }
 
             Notification::make()->title('Configuración guardada')->success()->send();
@@ -394,6 +433,10 @@ class SettingsPage extends Page
             $config->update($this->buildConfigPayload('global'));
             if ($config->active) {
                 Cache::forget('ai_active_provider');
+                $newSlug = trim($this->globalProviderSlug);
+                if ($newSlug !== '') {
+                    Cache::forget("ai_provider_{$newSlug}");
+                }
             }
             $this->refreshGlobalPresetsList();
             Notification::make()->title("Preset «{$config->name}» actualizado")->success()->send();
@@ -416,8 +459,17 @@ class SettingsPage extends Page
                 return;
             }
 
+            // Leer el slug anterior antes de activar para invalidar también su caché.
+            $oldSlug = (string) (AgentConfig::globalInstance()->provider ?? '');
             $config->activateAsGlobal();
+            $this->globalProviderSlug = (string) ($config->provider ?? '');
             Cache::forget('ai_active_provider');
+            if ($oldSlug !== '') {
+                Cache::forget("ai_provider_{$oldSlug}");
+            }
+            if ($this->globalProviderSlug !== '' && $this->globalProviderSlug !== $oldSlug) {
+                Cache::forget("ai_provider_{$this->globalProviderSlug}");
+            }
             $this->refreshGlobalPresetsList();
             Notification::make()->title("Preset «{$config->name}» activado")->success()->send();
         } catch (\Throwable $e) {
@@ -510,6 +562,7 @@ class SettingsPage extends Page
     private function mapConfigToProperties(Model $config): void
     {
         $catalog = app(AgentCatalog::class);
+        $this->globalProviderSlug = (string) ($config->provider ?? '');
         $this->writerModel = (string) ($config->writer_model ?? '');
         $this->qaModel = (string) ($config->qa_model ?? '');
         $this->timeoutMs = (string) ($config->timeout_ms ?? '120000');
@@ -526,6 +579,12 @@ class SettingsPage extends Page
                 }
                 if (is_string($settings['provider'] ?? null) && trim((string) $settings['provider']) !== '') {
                     $this->agentProviders[(string) $key] = trim((string) $settings['provider']);
+                }
+                if (isset($settings['reasoning']) && is_bool($settings['reasoning'])) {
+                    $this->agentReasoning[(string) $key] = $settings['reasoning'];
+                }
+                if (isset($settings['budget_tokens']) && is_numeric($settings['budget_tokens'])) {
+                    $this->agentReasoningBudget[(string) $key] = (int) $settings['budget_tokens'];
                 }
             }
         }
@@ -548,6 +607,11 @@ class SettingsPage extends Page
             $this->qaPolicyComplex = (string) ($qaPolicy['complex'] ?? 'adaptive');
         }
 
+        $safetyDriver = $config->settings_json['safety_driver'] ?? null;
+        if (is_string($safetyDriver) && in_array($safetyDriver, ['llm', 'openai_moderation'], true)) {
+            $this->safetyDriver = $safetyDriver;
+        }
+
         $this->syncPrimaryModelsFromAgentMap();
     }
 
@@ -559,19 +623,23 @@ class SettingsPage extends Page
         $this->syncPrimaryModelsFromAgentMap();
 
         return [
+            'provider' => trim($this->globalProviderSlug) ?: null,
             'writer_model' => trim($this->writerModel) ?: null,
             'qa_model' => trim($this->qaModel) ?: null,
             'timeout_ms' => is_numeric($this->timeoutMs) ? (int) $this->timeoutMs : null,
             'settings_json' => [
-                'saved_from' => 'filament.settings.' . $scope,
-                'agents' => $this->buildAgentPayload(),
-                'parameters' => [
+                'saved_from'    => 'filament.settings.' . $scope,
+                'agents'        => $this->buildAgentPayload(),
+                'parameters'    => [
                     'writer' => $this->buildWriterParameterPayload(),
                 ],
-                'qa_policy' => [
-                    'simple' => $this->normalizeQaPolicy($this->qaPolicySimple),
+                'qa_policy'     => [
+                    'simple'  => $this->normalizeQaPolicy($this->qaPolicySimple),
                     'complex' => $this->normalizeQaPolicy($this->qaPolicyComplex),
                 ],
+                'safety_driver' => in_array($this->safetyDriver, ['llm', 'openai_moderation'], true)
+                    ? $this->safetyDriver
+                    : 'llm',
             ],
         ];
     }
@@ -596,6 +664,11 @@ class SettingsPage extends Page
             $slug  = trim((string) ($this->agentProviders[$key] ?? ''));
             if ($slug !== '') {
                 $entry['provider'] = $slug;
+            }
+            $reasoning = $this->agentReasoning[$key] ?? false;
+            $entry['reasoning'] = (bool) $reasoning;
+            if ($reasoning) {
+                $entry['budget_tokens'] = max(1000, (int) ($this->agentReasoningBudget[$key] ?? 8000));
             }
             $payload[$key] = $entry;
         }
@@ -662,6 +735,7 @@ class SettingsPage extends Page
             'timeout_ms' => $this->timeoutMs,
             'openrouter_key' => filled(config('historia.ai.openrouter.api_key')),
             'anthropic_key' => filled(config('historia.ai.anthropic.api_key')),
+            'google_key' => filled(config('historia.ai.google.api_key')),
             'writer_style_profile' => $this->writerStyleProfile,
             'writer_response_length' => $this->writerResponseLength,
             'critic_model' => $resolved['models']['critic'] ?? '',
@@ -718,5 +792,81 @@ class SettingsPage extends Page
         }
 
         return $groups;
+    }
+
+    /**
+     * Consulta la API de Google para listar los modelos Gemini disponibles.
+     * Cachea el resultado 1 hora por provider. Solo incluye modelos que soportan generateContent.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchGoogleModels(AiProvider $provider, bool $forceRefresh = false): array
+    {
+        $cacheKey = 'ai_google_models_' . $provider->slug;
+
+        if ($forceRefresh) {
+            Cache::forget($cacheKey);
+        }
+
+        return Cache::remember($cacheKey, now()->addHour(), function () use ($provider): array {
+            try {
+                $apiKey = trim((string) ($provider->api_key ?? ''));
+                if ($apiKey === '') {
+                    return [];
+                }
+
+                $response = Http::timeout(10)
+                    ->acceptJson()
+                    ->get('https://generativelanguage.googleapis.com/v1beta/models', ['key' => $apiKey]);
+
+                if (! $response->successful()) {
+                    Log::warning('[SettingsPage@fetchGoogleModels] API error', [
+                        'provider' => $provider->slug,
+                        'status'   => $response->status(),
+                    ]);
+                    return [];
+                }
+
+                $result = [];
+
+                foreach ($response->json('models') ?? [] as $model) {
+                    $methods = $model['supportedGenerationMethods'] ?? [];
+                    if (! in_array('generateContent', $methods, true)) {
+                        continue;
+                    }
+
+                    // "models/gemini-2.5-pro" → "gemini-2.5-pro"
+                    $id          = preg_replace('#^models/#', '', (string) ($model['name'] ?? ''));
+                    $displayName = (string) ($model['displayName'] ?? $id);
+
+                    $result[$provider->slug . ':' . $id] = [
+                        'id'                    => $id,
+                        'name'                  => $displayName,
+                        'description'           => (string) ($model['description'] ?? ''),
+                        'context_length'        => (int) ($model['inputTokenLimit'] ?? 0),
+                        'max_completion_tokens' => (int) ($model['outputTokenLimit'] ?? 0),
+                        'pricing'               => ['prompt' => '0', 'completion' => '0', 'request' => '0'],
+                        'price_label'           => $provider->name . ' directo',
+                        'option_label'          => $displayName . ' · ' . $provider->name,
+                        'provider_slug'         => $provider->slug,
+                        'provider_name'         => $provider->name,
+                        'source'                => 'direct',
+                    ];
+                }
+
+                Log::debug('[SettingsPage@fetchGoogleModels] Modelos cargados', [
+                    'provider' => $provider->slug,
+                    'count'    => count($result),
+                ]);
+
+                return $result;
+            } catch (Throwable $e) {
+                Log::warning('[SettingsPage@fetchGoogleModels] Excepción', [
+                    'provider' => $provider->slug,
+                    'error'    => $e->getMessage(),
+                ]);
+                return [];
+            }
+        });
     }
 }

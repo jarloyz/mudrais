@@ -57,6 +57,7 @@ class AiProviderResource extends Resource
                     'openai_compatible' => 'OpenAI-compatible (/v1/chat/completions)',
                     'anthropic'         => 'Anthropic (gestionado internamente)',
                     'ollama'            => 'Ollama (gestionado internamente)',
+                    'google'            => 'Google AI (Gemini — endpoint OpenAI-compatible)',
                 ])
                 ->default('openai_compatible'),
 
@@ -112,6 +113,7 @@ class AiProviderResource extends Resource
                         'openai_compatible' => 'success',
                         'anthropic'         => 'warning',
                         'ollama'            => 'info',
+                        'google'            => 'danger',
                         default             => 'gray',
                     }),
 

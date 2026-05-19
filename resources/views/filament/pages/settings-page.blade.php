@@ -1,7 +1,8 @@
 <x-filament-panels::page>
     {{-- Model catalog for the Alpine combobox. Emitted once, updated reactively via Livewire event. --}}
     <script>
-        window.HP_MODELS = @js(array_values($openRouterModelLookup));
+        window.HP_MODELS    = @js(array_values($openRouterModelLookup));
+        window.HP_PROVIDERS = @js($providerOptions); // {slug: name, ...}
 
         // Re-populate HP_MODELS whenever the catalog is refreshed (Livewire dispatches this event).
         window.addEventListener('hp-models-updated', (e) => {
@@ -14,35 +15,69 @@
                 query: '',
                 open: false,
                 filtered: [],
+                selectedProvider: '',
+                providers: [],
 
                 init() {
+                    this.providers = [{ slug: '', name: 'Todos los proveedores' }].concat(
+                        Object.entries(window.HP_PROVIDERS || {}).map(([slug, name]) => ({ slug, name }))
+                    );
                     this.query = this.$wire.get(this.wireKey) || '';
-                    // Keep query in sync when Livewire pushes a new value (e.g. after load)
+                    // Pre-seleccionar el provider si ya hay uno configurado para este agente.
+                    if (this.wireKey.startsWith('agentModels.')) {
+                        const providerKey = this.wireKey.replace('agentModels.', 'agentProviders.');
+                        this.selectedProvider = this.$wire.get(providerKey) || '';
+                    }
                     this.$wire.$watch(this.wireKey, (val) => {
                         if ((val || '') !== this.query) this.query = val || '';
                     });
                 },
 
+                poolForProvider() {
+                    const all = window.HP_MODELS || [];
+                    if (!this.selectedProvider) return all;
+                    return all.filter(m =>
+                        m.source === 'direct'
+                            ? m.provider_slug === this.selectedProvider
+                            : this.selectedProvider === 'openrouter'
+                    );
+                },
+
                 filter() {
-                    const q = this.query.toLowerCase().trim();
-                    if (!q) { this.filtered = []; this.open = false; return; }
-                    this.filtered = (window.HP_MODELS || [])
-                        .filter(m =>
-                            (m.id   || '').toLowerCase().includes(q) ||
-                            (m.name || '').toLowerCase().includes(q)
-                        )
-                        .slice(0, 16);
+                    const q    = this.query.toLowerCase().trim();
+                    const pool = this.poolForProvider();
+                    if (!q) {
+                        const direct = pool.filter(m => m.source === 'direct');
+                        const rest   = pool.filter(m => m.source !== 'direct');
+                        this.filtered = [...direct, ...rest];
+                    } else {
+                        this.filtered = pool
+                            .filter(m =>
+                                (m.id   || '').toLowerCase().includes(q) ||
+                                (m.name || '').toLowerCase().includes(q)
+                            )
+                            .sort((a, b) => (a.source === 'direct' ? 0 : 1) - (b.source === 'direct' ? 0 : 1));
+                    }
                     this.open = this.filtered.length > 0;
+                },
+
+                onProviderChange() {
+                    if (this.wireKey.startsWith('agentModels.')) {
+                        const providerKey = this.wireKey.replace('agentModels.', 'agentProviders.');
+                        this.$wire.set(providerKey, this.selectedProvider);
+                    }
+                    this.query = '';
+                    this.filter();
                 },
 
                 select(model) {
                     const id = typeof model === 'string' ? model : (model.id || model);
                     this.query = id;
                     this.$wire.set(this.wireKey, id);
-                    // Si el modelo tiene provider_slug y el picker es de agentModels, propaga el proveedor
                     if (typeof model === 'object' && model.provider_slug !== undefined && this.wireKey.startsWith('agentModels.')) {
                         const providerKey = this.wireKey.replace('agentModels.', 'agentProviders.');
                         this.$wire.set(providerKey, model.provider_slug || '');
+                        this.selectedProvider = model.provider_slug || '';
                     }
                     this.open = false;
                     this.filtered = [];
@@ -52,7 +87,6 @@
                     if (this.filtered.length > 0) {
                         this.select(this.filtered[0]);
                     } else {
-                        // User typed a raw model ID without picking from the list — commit it.
                         const val = this.query.trim();
                         if (val) this.$wire.set(this.wireKey, val);
                         this.open = false;
@@ -60,7 +94,6 @@
                 },
 
                 commit() {
-                    // On blur: commit whatever is in the input so manual paste works too.
                     const val = this.query.trim();
                     if (val) this.$wire.set(this.wireKey, val);
                     setTimeout(() => { this.open = false; }, 150);
@@ -83,6 +116,20 @@
 
             {{-- ── Presets globales ─────────────────────────────────────────────── --}}
             <x-historia.card title="Presets globales" description="El preset activo es la configuración base del sistema. Selecciona uno para cargarlo, actualízalo con el formulario actual o crea uno nuevo." class="xl:col-span-2">
+
+                {{-- Proveedor LLM global del preset --}}
+                <div class="mb-4">
+                    <label class="block text-sm">
+                        <span class="mb-1 block text-stone-600 dark:text-slate-300">Proveedor LLM activo</span>
+                        <select wire:model="globalProviderSlug" class="hp-select max-w-xs">
+                            <option value="">— Heredar del config —</option>
+                            @foreach ($providerOptions as $slug => $name)
+                                <option value="{{ $slug }}">{{ $name }}</option>
+                            @endforeach
+                        </select>
+                        <p class="mt-1 text-xs text-stone-500 dark:text-slate-400">Gateway LLM que usará este preset. Se guarda al pulsar "Actualizar" o "Guardar como nuevo".</p>
+                    </label>
+                </div>
 
                 {{-- Selector de preset --}}
                 <div class="flex flex-wrap items-end gap-3">
@@ -354,6 +401,41 @@
                                         · <span class="font-semibold">Ctx:</span> {{ number_format((int) $selectedModel['context_length']) }}
                                     @endif
                                 </div>
+                                <div
+                                    class="mt-3"
+                                    x-data="{ reasoning: $wire.entangle('agentReasoning.{{ $agent['key'] }}') }"
+                                >
+                                    <label class="flex cursor-pointer items-center gap-2 text-sm select-none">
+                                        <input
+                                            type="checkbox"
+                                            x-model="reasoning"
+                                            class="h-4 w-4 rounded border-stone-300 text-fuchsia-600 focus:ring-fuchsia-500 dark:border-white/20"
+                                        />
+                                        <span class="text-stone-600 dark:text-slate-300">Reasoning</span>
+                                    </label>
+                                    <div x-show="reasoning" x-cloak class="mt-2">
+                                        <label class="block text-sm">
+                                            <span class="mb-1 block text-stone-500 dark:text-slate-400">Budget tokens</span>
+                                            <input
+                                                type="number"
+                                                wire:model="agentReasoningBudget.{{ $agent['key'] }}"
+                                                min="1000"
+                                                step="1000"
+                                                class="hp-input w-full"
+                                                placeholder="8000"
+                                            />
+                                        </label>
+                                    </div>
+                                </div>
+                                @if ($agent['key'] === 'safety')
+                                    <label class="mt-3 block text-sm">
+                                        <span class="mb-1 block text-stone-600 dark:text-slate-300">Driver de safety</span>
+                                        <select wire:model="safetyDriver" class="hp-select w-full">
+                                            <option value="llm">LLM (agente configurado)</option>
+                                            <option value="openai_moderation">OpenAI Moderation API</option>
+                                        </select>
+                                    </label>
+                                @endif
                             </div>
                         @endforeach
                     </div>

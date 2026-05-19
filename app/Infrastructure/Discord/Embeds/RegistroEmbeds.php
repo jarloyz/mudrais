@@ -26,19 +26,10 @@ class RegistroEmbeds
             'data' => [
                 'flags'  => 64,
                 'embeds' => [[
-                    'title'       => '¡Bienvenido a MUDRAIS!',
-                    'description' => implode("\n", [
-                        'Conecta con miles de roleros afines a tu estilo.',
-                        '',
-                        'Al registrarte aceptas nuestros **términos de comunidad**: respeto, ',
-                        'no spam y contenido apropiado para el servidor.',
-                        '',
-                        '**El registro es gratuito y solo tarda 2 pasos.**',
-                        '',
-                        'Para comenzar, **selecciona tu sexo/pronombres:**',
-                    ]),
-                    'color' => self::COLOR_GREEN,
-                    'footer' => ['text' => 'MUDRAIS · Sistema de Emparejamiento de Rol'],
+                    'title'       => __('discord.registro_intro_nuevo_title'),
+                    'description' => __('discord.registro_intro_nuevo_desc'),
+                    'color'       => self::COLOR_GREEN,
+                    'footer'      => ['text' => __('discord.footer')],
                 ]],
                 'components' => [[
                     'type'       => 1,
@@ -46,19 +37,19 @@ class RegistroEmbeds
                         [
                             'type'      => 2,
                             'style'     => 1,
-                            'label'     => '♂️ Hombre',
+                            'label'     => __('discord.registro_btn_male'),
                             'custom_id' => 'btn_reg_hombre',
                         ],
                         [
                             'type'      => 2,
                             'style'     => 1,
-                            'label'     => '♀️ Mujer',
+                            'label'     => __('discord.registro_btn_female'),
                             'custom_id' => 'btn_reg_mujer',
                         ],
                         [
                             'type'      => 2,
                             'style'     => 2,
-                            'label'     => '⚧ Otro / No Binario',
+                            'label'     => __('discord.registro_btn_other'),
                             'custom_id' => 'btn_reg_otro',
                         ],
                     ],
@@ -71,42 +62,49 @@ class RegistroEmbeds
      * Embed para jugadores existentes que quieren editar su ficha.
      * Muestra botones separados para editar Datos Básicos o la Ficha de Arquetipo.
      */
-    public static function introEdicion(int $coinBalance, int $cost): array
+    public static function introEdicion(int $coinBalance, int $cost, bool $withBeta = false, bool $withGamma = false): array
     {
+        $interviewButton = $withBeta
+            ? ['type' => 2, 'style' => 3, 'label' => __('discord.interview_beta_btn_label'), 'custom_id' => 'btn_iniciar_entrevista_beta']
+            : ['type' => 2, 'style' => 2, 'label' => __('discord.interview_btn_label'),      'custom_id' => 'btn_interview_start'];
+
+        $buttons = [
+            [
+                'type'      => 2,
+                'style'     => 2,
+                'label'     => __('discord.registro_edicion_btn_basics'),
+                'custom_id' => 'btn_abrir_modal_1_edicion',
+            ],
+            [
+                'type'      => 2,
+                'style'     => 1,
+                'label'     => __('discord.registro_edicion_btn_archetype'),
+                'custom_id' => 'btn_abrir_modal_2',
+            ],
+            $interviewButton,
+        ];
+
+        if ($withGamma) {
+            $buttons[] = [
+                'type'      => 2,
+                'style'     => 2,
+                'label'     => __('discord.voice_interview_btn_label'),
+                'custom_id' => 'btn_voice_interview_start',
+                'emoji'     => ['name' => '🎙️'],
+            ];
+        }
+
         return [
             'type' => 4,
             'data' => [
                 'flags'  => 64,
                 'embeds' => [[
-                    'title'       => '✏️ Editar tu Perfil MUDRAIS',
-                    'description' => implode("\n", [
-                        "Editar tus **Datos Básicos** no tiene costo.",
-                        "Editar tu **Ficha de Arquetipo** tiene un costo de **{$cost} monedas**.",
-                        '',
-                        "Tu saldo actual: **{$coinBalance} monedas**.",
-                        '',
-                        'Selecciona qué parte de tu perfil deseas modificar.',
-                    ]),
-                    'color' => self::COLOR_BLUE,
-                    'footer' => ['text' => 'MUDRAIS · Sistema de Emparejamiento de Rol'],
+                    'title'       => __('discord.registro_edicion_title'),
+                    'description' => __('discord.registro_edicion_desc', ['cost' => $cost, 'balance' => $coinBalance]),
+                    'color'       => self::COLOR_BLUE,
+                    'footer'      => ['text' => __('discord.footer')],
                 ]],
-                'components' => [[
-                    'type'       => 1,
-                    'components' => [
-                        [
-                            'type'      => 2,
-                            'style'     => 2,
-                            'label'     => '👤 Editar Datos Básicos',
-                            'custom_id' => 'btn_abrir_modal_1_edicion',
-                        ],
-                        [
-                            'type'      => 2,
-                            'style'     => 1,
-                            'label'     => '🎭 Ficha de Arquetipo',
-                            'custom_id' => 'btn_abrir_modal_2',
-                        ]
-                    ],
-                ]],
+                'components' => [['type' => 1, 'components' => $buttons]],
             ],
         ];
     }
@@ -115,68 +113,74 @@ class RegistroEmbeds
      * Embed para jugadores con datos básicos guardados pero sin perfil de arquetipo en el vault actual.
      * Salta Step 1 e invoca directamente btn_abrir_modal_2 (creación gratuita).
      */
-    public static function introCompletarArquetipo(): array
+    public static function introCompletarArquetipo(bool $withBeta = false, bool $withGamma = false): array
     {
+        $interviewButton = $withBeta
+            ? ['type' => 2, 'style' => 3, 'label' => __('discord.interview_beta_btn_label'), 'custom_id' => 'btn_iniciar_entrevista_beta']
+            : ['type' => 2, 'style' => 2, 'label' => __('discord.interview_btn_label'),      'custom_id' => 'btn_interview_start'];
+
+        $buttons = [
+            [
+                'type'      => 2,
+                'style'     => 1,
+                'label'     => __('discord.registro_completar_btn'),
+                'custom_id' => 'btn_abrir_modal_2',
+            ],
+            $interviewButton,
+        ];
+
+        if ($withGamma) {
+            $buttons[] = [
+                'type'      => 2,
+                'style'     => 2,
+                'label'     => __('discord.voice_interview_btn_label'),
+                'custom_id' => 'btn_voice_interview_start',
+                'emoji'     => ['name' => '🎙️'],
+            ];
+        }
+
         return [
             'type' => 4,
             'data' => [
                 'flags'  => 64,
                 'embeds' => [[
-                    'title'       => '📋 Completa tu Ficha de Arquetipo',
-                    'description' => implode("\n", [
-                        'Tus **datos básicos ya están guardados**.',
-                        '',
-                        'Aún no tienes una ficha de arquetipo para este servidor.',
-                        '**Completarla es gratuito.** Haz clic para continuar.',
-                    ]),
-                    'color'  => self::COLOR_GREEN,
-                    'footer' => ['text' => 'MUDRAIS · Sistema de Emparejamiento de Rol'],
+                    'title'       => __('discord.registro_completar_title'),
+                    'description' => __('discord.registro_completar_desc'),
+                    'color'       => self::COLOR_GREEN,
+                    'footer'      => ['text' => __('discord.footer')],
                 ]],
-                'components' => [[
-                    'type'       => 1,
-                    'components' => [[
-                        'type'      => 2,
-                        'style'     => 1,
-                        'label'     => '🎭 Completar Ficha de Arquetipo',
-                        'custom_id' => 'btn_abrir_modal_2',
-                    ]],
-                ]],
+                'components' => [['type' => 1, 'components' => $buttons]],
             ],
         ];
     }
-/**
- * Mensaje puente para flujos paginados del Paso 2.
- */
-public static function puenteStep2Paginado(int $nextPage, int $totalPages): array
-{
-    return [
-        'content' => '',
-        'embeds'  => [[
-            'title'       => "📋 Registro en Progreso ({$nextPage}/{$totalPages})",
-            'description' => implode("\n", [
-                '¡Excelente! Hemos guardado la parte anterior.',
-                '',
-                'Este arquetipo requiere **más datos específicos**.',
-                'Haz clic abajo para continuar.',
-            ]),
-            'color'  => self::COLOR_BLUE,
-            'footer' => ['text' => 'MUDRAIS · Sistema de Emparejamiento de Rol'],
-        ]],
-        'components' => [[
-            'type'       => 1,
-            'components' => [[
-                'type'      => 2,
-                'style'     => 1,
-                'label'     => "Continuar Parte " . ($nextPage + 1) . " →",
-                'custom_id' => "btn_abrir_modal_2:{$nextPage}",
-            ]],
-        ]],
-    ];
-}
 
-/**
- * Mensaje puente que reemplaza el embed de bienvenida tras un Step 1 exitoso.
-...
+    /**
+     * Mensaje puente para flujos paginados del Paso 2.
+     */
+    public static function puenteStep2Paginado(int $nextPage, int $totalPages): array
+    {
+        return [
+            'content' => '',
+            'embeds'  => [[
+                'title'       => __('discord.registro_puente_paginado_title', ['current' => $nextPage, 'total' => $totalPages]),
+                'description' => __('discord.registro_puente_paginado_desc'),
+                'color'       => self::COLOR_BLUE,
+                'footer'      => ['text' => __('discord.footer')],
+            ]],
+            'components' => [[
+                'type'       => 1,
+                'components' => [[
+                    'type'      => 2,
+                    'style'     => 1,
+                    'label'     => __('discord.registro_puente_paginado_btn', ['next' => $nextPage + 1]),
+                    'custom_id' => "btn_abrir_modal_2:{$nextPage}",
+                ]],
+            ]],
+        ];
+    }
+
+    /**
+     * Mensaje puente que reemplaza el embed de bienvenida tras un Step 1 exitoso.
      * Aparece mientras el usuario no ha abierto el Modal 2 todavía.
      */
     public static function puenteStep2(): array
@@ -184,21 +188,17 @@ public static function puenteStep2Paginado(int $nextPage, int $totalPages): arra
         return [
             'content' => '',
             'embeds'  => [[
-                'title'       => '✅ Paso 1 Completado',
-                'description' => implode("\n", [
-                    'Tus datos han sido guardados.',
-                    '',
-                    'Haz clic abajo para continuar con tu **estilo de escritura y preferencias**.',
-                ]),
-                'color'  => self::COLOR_BLUE,
-                'footer' => ['text' => 'MUDRAIS · Sistema de Emparejamiento de Rol'],
+                'title'       => __('discord.registro_puente_step2_title'),
+                'description' => __('discord.registro_puente_step2_desc'),
+                'color'       => self::COLOR_BLUE,
+                'footer'      => ['text' => __('discord.footer')],
             ]],
             'components' => [[
                 'type'       => 1,
                 'components' => [[
                     'type'      => 2,
                     'style'     => 1,
-                    'label'     => 'Continuar al Paso 2 →',
+                    'label'     => __('discord.registro_puente_step2_btn'),
                     'custom_id' => 'btn_abrir_modal_2',
                 ]],
             ]],
@@ -214,8 +214,8 @@ public static function puenteStep2Paginado(int $nextPage, int $totalPages): arra
         return [
             'content' => '',
             'embeds'  => [[
-                'title'       => '⚠️ Error en el Paso 1',
-                'description' => $errorMessage . "\n\nHaz clic abajo para corregirlo.",
+                'title'       => __('discord.registro_error_step1_title'),
+                'description' => __('discord.registro_error_step1_desc', ['error' => $errorMessage]),
                 'color'       => self::COLOR_RED,
             ]],
             'components' => [[
@@ -223,7 +223,7 @@ public static function puenteStep2Paginado(int $nextPage, int $totalPages): arra
                 'components' => [[
                     'type'      => 2,
                     'style'     => 4,
-                    'label'     => '🔁 Corregir Paso 1',
+                    'label'     => __('discord.registro_error_step1_btn'),
                     'custom_id' => 'btn_retry_modal_1',
                 ]],
             ]],
@@ -238,8 +238,8 @@ public static function puenteStep2Paginado(int $nextPage, int $totalPages): arra
         return [
             'content' => '',
             'embeds'  => [[
-                'title'       => '⚠️ Error en el Paso 2',
-                'description' => $errorMessage . "\n\nHaz clic abajo para corregirlo.",
+                'title'       => __('discord.registro_error_step2_title'),
+                'description' => __('discord.registro_error_step2_desc', ['error' => $errorMessage]),
                 'color'       => self::COLOR_RED,
             ]],
             'components' => [[
@@ -247,7 +247,7 @@ public static function puenteStep2Paginado(int $nextPage, int $totalPages): arra
                 'components' => [[
                     'type'      => 2,
                     'style'     => 4,
-                    'label'     => '🔁 Corregir Paso 2',
+                    'label'     => __('discord.registro_error_step2_btn'),
                     'custom_id' => "btn_retry_modal_2:{$page}",
                 ]],
             ]],
@@ -262,16 +262,10 @@ public static function puenteStep2Paginado(int $nextPage, int $totalPages): arra
         return [
             'content'    => '',
             'embeds'     => [[
-                'title'       => '🎉 ¡Perfil MUDRAIS Creado!',
-                'description' => implode("\n", [
-                    "¡Bienvenido, **{$username}**! Tu ficha está lista.",
-                    '',
-                    'Ahora puedes usar `/create` para encontrar compañeros de rol o iniciar una nueva partida.',
-                    '',
-                    '**Siguiente paso recomendado:** Completa el Vault Tutorial para desbloquear todas las funciones.',
-                ]),
-                'color'  => self::COLOR_GREEN,
-                'footer' => ['text' => 'MUDRAIS · Sistema de Emparejamiento de Rol'],
+                'title'       => __('discord.registro_exito_nuevo_title'),
+                'description' => __('discord.registro_exito_nuevo_desc', ['username' => $username]),
+                'color'       => self::COLOR_GREEN,
+                'footer'      => ['text' => __('discord.footer')],
             ]],
             'components' => [],
         ];
@@ -285,14 +279,10 @@ public static function puenteStep2Paginado(int $nextPage, int $totalPages): arra
         return [
             'content'    => '',
             'embeds'     => [[
-                'title'       => '✅ Ficha Actualizada',
-                'description' => implode("\n", [
-                    "Tu perfil ha sido actualizado, **{$username}**.",
-                    '',
-                    "Saldo restante: **{$coinsRemaining} monedas**.",
-                ]),
-                'color'  => self::COLOR_GOLD,
-                'footer' => ['text' => 'MUDRAIS · Sistema de Emparejamiento de Rol'],
+                'title'       => __('discord.registro_exito_edit_title'),
+                'description' => __('discord.registro_exito_edit_desc', ['username' => $username, 'coins' => $coinsRemaining]),
+                'color'       => self::COLOR_GOLD,
+                'footer'      => ['text' => __('discord.footer')],
             ]],
             'components' => [],
         ];
@@ -308,8 +298,8 @@ public static function puenteStep2Paginado(int $nextPage, int $totalPages): arra
             'data' => [
                 'flags'  => 64,
                 'embeds' => [[
-                    'title'       => '⚠️ Error en el Paso 1',
-                    'description' => $errorMessage . "\n\nHaz clic abajo para corregirlo.",
+                    'title'       => __('discord.registro_error_step1_title'),
+                    'description' => __('discord.registro_error_step1_desc', ['error' => $errorMessage]),
                     'color'       => self::COLOR_RED,
                 ]],
                 'components' => [[
@@ -317,7 +307,7 @@ public static function puenteStep2Paginado(int $nextPage, int $totalPages): arra
                     'components' => [[
                         'type'      => 2,
                         'style'     => 4,
-                        'label'     => '🔁 Corregir Paso 1',
+                        'label'     => __('discord.registro_error_step1_btn'),
                         'custom_id' => 'btn_retry_modal_1',
                     ]],
                 ]],

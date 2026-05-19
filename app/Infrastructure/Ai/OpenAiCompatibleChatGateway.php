@@ -77,9 +77,17 @@ class OpenAiCompatibleChatGateway implements AiChatGateway
         if (array_key_exists('metadata', $options) && is_array($options['metadata']) && $options['metadata'] !== []) {
             $payload['metadata'] = $options['metadata'];
         }
-        // El parámetro 'thinking' (budget_tokens) es exclusivo de Anthropic Claude.
-        // Los backends OpenAI-compatible ignoran el campo pero sí respetan max_tokens,
-        // por lo que NO inflamos max_tokens con el budget — se usa el valor del caller.
+        // Siempre enviamos reasoning explícito para suprimir el reasoning por defecto
+        // de modelos como GLM-4.5 que lo activan aunque no se solicite.
+        $reasoningEnabled = (bool) (($options['reasoning'] ?? [])['enabled'] ?? false);
+        $payload['reasoning'] = ['enabled' => $reasoningEnabled];
+        if ($reasoningEnabled) {
+            $payload['temperature'] = 1.0;
+            $budgetTokens = (int) (($options['reasoning'] ?? [])['budget_tokens'] ?? 0);
+            if ($budgetTokens > 0) {
+                $payload['max_tokens'] = $maxOutputTokens + $budgetTokens;
+            }
+        }
 
         $logger->debug('OpenAI-compatible request prepared', [
             'request' => $this->buildRequestLogContext($payload, $timeoutSeconds),

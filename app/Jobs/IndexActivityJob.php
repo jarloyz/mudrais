@@ -8,7 +8,7 @@ use App\Domains\Matchmaking\Services\EntityTypePromptBuilderService;
 use App\Domains\Narrative\Models\Activity;
 use App\Enums\IndexingStatus;
 use App\Infrastructure\Ai\Agents\ContextOptimizerAgent;
-use App\Infrastructure\Ai\Agents\StyleOptimizerAgent;
+use App\Infrastructure\Ai\Agents\ProfileOptimizerAgent;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -34,7 +34,7 @@ class IndexActivityJob implements ShouldQueue
     public function handle(
         EmbeddingGateway $gateway,
         QdrantService $qdrant,
-        StyleOptimizerAgent $styleOptimizer,
+        ProfileOptimizerAgent $profileOptimizer,
         ContextOptimizerAgent $contextOptimizer,
         EntityTypePromptBuilderService $promptBuilder
     ): void {
@@ -157,7 +157,7 @@ class IndexActivityJob implements ShouldQueue
                 $optimizedText = $activity->title;
             }
         } else {
-            Log::info('[IndexActivityJob] Usando StyleOptimizer pipeline (legacy)', [
+            Log::info('[IndexActivityJob] Usando ProfileOptimizer pipeline (legacy)', [
                 'activity_id' => $activity->id,
             ]);
 
@@ -165,7 +165,8 @@ class IndexActivityJob implements ShouldQueue
 
             if ($textToOptimize !== '') {
                 try {
-                    $optimizedText = $styleOptimizer->optimize($textToOptimize, $playerId);
+                    $result        = $profileOptimizer->optimize($textToOptimize, null, $playerId);
+                    $optimizedText = $result['optimized_text'];
                 } catch (\RuntimeException $e) {
                     Log::error('IndexActivityJob: optimizer failed.', [
                         'activity_id' => $activity->id,
@@ -173,7 +174,7 @@ class IndexActivityJob implements ShouldQueue
                     ]);
                     $activity->update([
                         'indexing_status' => IndexingStatus::Failed,
-                        'index_error'     => '[StyleOptimizer] ' . $e->getMessage(),
+                        'index_error'     => '[ProfileOptimizer] ' . $e->getMessage(),
                     ]);
                     return;
                 }

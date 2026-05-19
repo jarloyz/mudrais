@@ -55,18 +55,13 @@ class EnsureDiscordCommandPermission
                 return $next($request);
             }
 
-            Log::warning('[EnsureDiscordCommandPermission@handle] Player no encontrado', [
+            Log::info('[EnsureDiscordCommandPermission@handle] Player no registrado — redirigiendo a /register', [
                 'discord_user_id' => $discordUserId,
-                'command'         => $commandName,
+                'original_command' => $commandName,
             ]);
 
-            return response()->json([
-                'type' => 4,
-                'data' => [
-                    'content' => '⚠️ No estás registrado en MUDRAIS. Usa `/registro` para comenzar.',
-                    'flags'   => 64,
-                ],
-            ]);
+            $request->attributes->set('force_registro', true);
+            return $next($request);
         }
 
         // Auto-crear membresía en la guild si es la primera vez que el player interactúa
@@ -89,14 +84,15 @@ class EnsureDiscordCommandPermission
             return response()->json([
                 'type' => 4,
                 'data' => [
-                    'content' => "🚫 No tienes permiso para usar `/{$commandName}` en este servidor.",
+                    'content' => __('discord.permission_denied', ['command' => $commandName]),
                     'flags'   => 64,
                 ],
             ]);
         }
 
         // --- INICIO VERIFICACIÓN DE ARQUETIPO Y REGISTRO ---
-        $commandsExcludedFromArchetypeCheck = ['create_vault', 'registro', 'search', 'buscar-partner'];
+        // 'interview' y 'profile' son mecanismos de registro — no requieren perfil previo
+        $commandsExcludedFromArchetypeCheck = ['create-vault', 'register', 'search', 'interview', 'profile'];
         $channelId = $request->input('channel_id');
         if ($channelId && ! in_array($commandName, $commandsExcludedFromArchetypeCheck)) {
             $vault = \App\Domains\Narrative\Models\Vault::with('archetypes')->where('discord_channel_id', (string) $channelId)->first();
@@ -119,8 +115,8 @@ class EnsureDiscordCommandPermission
                                 'content' => '',
                                 'flags'   => 64,
                                 'embeds'  => [[
-                                    'title'       => 'Registro Requerido',
-                                    'description' => "No estás registrado en el arquetipo **{$archetype->name}**.\nDebes registrar tu ficha para interactuar en este canal.",
+                                    'title'       => __('discord.archetype_register_title'),
+                                    'description' => __('discord.archetype_register_desc', ['archetype' => $archetype->name]),
                                     'color'       => 0xFF0000,
                                 ]],
                                 'components' => [[
@@ -128,7 +124,7 @@ class EnsureDiscordCommandPermission
                                     'components' => [[
                                         'type'      => 2,
                                         'style'     => 1,
-                                        'label'     => '📝 Registrarse',
+                                        'label'     => __('discord.archetype_register_btn'),
                                         'custom_id' => "btn_abrir_modal_1_nuevo:{$archetype->id}",
                                     ]],
                                 ]],

@@ -2,6 +2,7 @@
 
 namespace App\Domains\Matchmaking\Models;
 
+use App\Domains\Matchmaking\Observers\ArchetypeMutatorObserver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,6 +12,11 @@ use Illuminate\Support\Str;
 class ArchetypeMutator extends Model
 {
     use HasUuids;
+
+    protected static function booted(): void
+    {
+        static::observe(ArchetypeMutatorObserver::class);
+    }
 
     public function newUniqueId()
     {

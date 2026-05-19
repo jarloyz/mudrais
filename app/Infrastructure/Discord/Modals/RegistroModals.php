@@ -13,18 +13,29 @@ class RegistroModals
      */
     public static function step1(bool $error = false, array $prefill = []): array
     {
+        // Los valores de género se almacenan en español en DB; las etiquetas se muestran traducidas.
+        $genderValues = ['Hombre', 'Mujer', 'No binario', 'Otro'];
+        $genderLabels = [
+            'Hombre'     => __('discord.modal_step1_gender_male'),
+            'Mujer'      => __('discord.modal_step1_gender_female'),
+            'No binario' => __('discord.modal_step1_gender_nonbinary'),
+            'Otro'       => __('discord.modal_step1_gender_other'),
+        ];
+
         return [
             'custom_id'  => 'mudrais_registro_step_1',
-            'title'      => $error ? '⚠️ Datos Básicos — Revisa los datos' : 'Registro MUDRAIS (Datos Básicos)',
+            'title'      => $error
+                ? __('discord.modal_step1_title_error')
+                : __('discord.modal_step1_title'),
             'components' => [
                 [
                     'type'       => 1,
                     'components' => [array_filter([
                         'type'        => 4,
                         'custom_id'   => 'nombre',
-                        'label'       => 'Nombre / Apodo',
+                        'label'       => __('discord.modal_step1_label_name'),
                         'style'       => 1,
-                        'placeholder' => 'Ej: Alex',
+                        'placeholder' => __('discord.modal_step1_placeholder_name'),
                         'required'    => true,
                         'max_length'  => 50,
                         'value'       => $prefill['nombre'] ?? null,
@@ -35,9 +46,9 @@ class RegistroModals
                     'components' => [array_filter([
                         'type'        => 4,
                         'custom_id'   => 'edad',
-                        'label'       => 'Edad',
+                        'label'       => __('discord.modal_step1_label_age'),
                         'style'       => 1,
-                        'placeholder' => 'Ej: 28',
+                        'placeholder' => __('discord.modal_step1_placeholder_age'),
                         'required'    => true,
                         'max_length'  => 3,
                         'value'       => $prefill['edad'] ?? null,
@@ -48,9 +59,9 @@ class RegistroModals
                     'components' => [array_filter([
                         'type'        => 4,
                         'custom_id'   => 'nacionalidad',
-                        'label'       => 'Nacionalidad',
+                        'label'       => __('discord.modal_step1_label_nationality'),
                         'style'       => 1,
-                        'placeholder' => 'Ej: México',
+                        'placeholder' => __('discord.modal_step1_placeholder_nat'),
                         'required'    => true,
                         'max_length'  => 50,
                         'value'       => $prefill['nacionalidad'] ?? null,
@@ -61,17 +72,17 @@ class RegistroModals
                     'components' => [[
                         'type'        => 3,
                         'custom_id'   => 'genero',
-                        'placeholder' => 'Género: Hombre / Mujer / No binario / Otro',
+                        'placeholder' => __('discord.modal_step1_placeholder_gender'),
                         'required'    => true,
                         'options'     => array_map(
-                            function (string $opt) use ($prefill): array {
-                                $option = ['label' => $opt, 'value' => $opt];
-                                if (($prefill['genero'] ?? null) === $opt) {
+                            function (string $value) use ($prefill, $genderLabels): array {
+                                $option = ['label' => $genderLabels[$value], 'value' => $value];
+                                if (($prefill['genero'] ?? null) === $value) {
                                     $option['default'] = true;
                                 }
                                 return $option;
                             },
-                            ['Hombre', 'Mujer', 'No binario', 'Otro']
+                            $genderValues
                         ),
                     ]],
                 ],
@@ -80,9 +91,9 @@ class RegistroModals
                     'components' => [array_filter([
                         'type'        => 4,
                         'custom_id'   => 'about_me',
-                        'label'       => 'Carta de Presentación (Comunidad)',
+                        'label'       => __('discord.modal_step1_label_about'),
                         'style'       => 2,
-                        'placeholder' => '¡Exprésate! Pon emojis, tu historia, links...',
+                        'placeholder' => __('discord.modal_step1_placeholder_about'),
                         'required'    => false,
                         'max_length'  => 1500,
                         'value'       => $prefill['about_me'] ?? null,
@@ -101,16 +112,16 @@ class RegistroModals
     {
         return [
             'custom_id'  => 'mudrais_registro_step_2',
-            'title'      => 'Ficha de Arquetipo',
+            'title'      => __('discord.modal_step2_title'),
             'components' => [
                 [
                     'type'       => 1,
                     'components' => [array_filter([
                         'type'        => 4,
                         'custom_id'   => 'red_lines',
-                        'label'       => 'Absolute Limits (Red)',
+                        'label'       => __('discord.modal_step2_label_red'),
                         'style'       => 2,
-                        'placeholder' => 'Topics forbidden for you. You will never see games with these.',
+                        'placeholder' => __('discord.modal_step2_placeholder_red'),
                         'required'    => false,
                         'value'       => $prefill['red_lines'] ?? null,
                     ], fn ($v) => $v !== null)],
@@ -120,9 +131,9 @@ class RegistroModals
                     'components' => [array_filter([
                         'type'        => 4,
                         'custom_id'   => 'yellow_lines',
-                        'label'       => 'Topics to Avoid (Yellow)',
+                        'label'       => __('discord.modal_step2_label_yellow'),
                         'style'       => 2,
-                        'placeholder' => 'Max 10, ordered from most to least unpleasant.',
+                        'placeholder' => __('discord.modal_step2_placeholder_yellow'),
                         'required'    => false,
                         'value'       => $prefill['yellow_lines'] ?? null,
                     ], fn ($v) => $v !== null)],
@@ -132,9 +143,9 @@ class RegistroModals
                     'components' => [array_filter([
                         'type'        => 4,
                         'custom_id'   => 'preferences',
-                        'label'       => 'Your Favorites',
+                        'label'       => __('discord.modal_step2_label_prefs'),
                         'style'       => 2,
-                        'placeholder' => 'Genres, tropes or themes. Max 10, ordered by preference.',
+                        'placeholder' => __('discord.modal_step2_placeholder_prefs'),
                         'required'    => true,
                         'value'       => $prefill['preferences'] ?? null,
                     ], fn ($v) => $v !== null)],
@@ -144,9 +155,9 @@ class RegistroModals
                     'components' => [array_filter([
                         'type'        => 4,
                         'custom_id'   => 'style',
-                        'label'       => 'Your Style Summary',
+                        'label'       => __('discord.modal_step2_label_style'),
                         'style'       => 2,
-                        'placeholder' => 'Be direct. E.g. 3rd person, psychological drama, slow burn...',
+                        'placeholder' => __('discord.modal_step2_placeholder_style'),
                         'required'    => true,
                         'max_length'  => 300,
                         'value'       => $prefill['style'] ?? null,
@@ -157,9 +168,9 @@ class RegistroModals
                     'components' => [array_filter([
                         'type'        => 4,
                         'custom_id'   => 'schedule_raw',
-                        'label'       => 'Availability / Schedule',
+                        'label'       => __('discord.modal_step2_label_schedule'),
                         'style'       => 1,
-                        'placeholder' => 'E.g. weekends, evenings UTC-5, ~3h/week',
+                        'placeholder' => __('discord.modal_step2_placeholder_schedule'),
                         'required'    => false,
                         'max_length'  => 200,
                         'value'       => $prefill['schedule_raw'] ?? null,

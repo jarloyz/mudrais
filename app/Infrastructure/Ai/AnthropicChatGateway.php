@@ -88,9 +88,9 @@ class AnthropicChatGateway implements AiChatGateway
 
         $timeoutSeconds = max(1, (int) ceil(($timeoutMs ?? 120000) / 1000));
 
-        $thinkingOpt = $options['thinking'] ?? null;
-        $thinkingActive = is_array($thinkingOpt) && ($thinkingOpt['type'] ?? '') === 'enabled';
-        $budgetTokens = $thinkingActive ? (int) ($thinkingOpt['budget_tokens'] ?? 8000) : 0;
+        $reasoningOpt = $options['reasoning'] ?? null;
+        $thinkingActive = is_array($reasoningOpt) && ($reasoningOpt['enabled'] ?? false) === true;
+        $budgetTokens = $thinkingActive ? (int) ($reasoningOpt['budget_tokens'] ?? 8000) : 0;
 
         if ($thinkingActive) {
             $temperature = 1.0;                          // Anthropic lo exige cuando thinking está activo

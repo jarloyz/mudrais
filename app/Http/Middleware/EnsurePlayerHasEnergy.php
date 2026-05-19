@@ -52,8 +52,12 @@ class EnsurePlayerHasEnergy
             return response()->json([
                 'type' => 4,
                 'data' => [
-                    'content' => "⚡ Necesitas **{$cost}** de energía para usar `/{$commandName}`. Tienes **{$player->energy}**.",
-                    'flags'   => 64,
+                    'content' => __('discord.energy_insufficient', [
+                        'cost'    => $cost,
+                        'command' => $commandName,
+                        'energy'  => $player->energy,
+                    ]),
+                    'flags' => 64,
                 ],
             ]);
         }

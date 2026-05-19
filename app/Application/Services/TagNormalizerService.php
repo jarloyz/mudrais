@@ -224,6 +224,12 @@ class TagNormalizerService
         $model    = $this->resolver->resolveAgentModel($playerId, 'gatekeeper');
         $provider = $this->resolver->resolveAgentProvider($playerId, 'gatekeeper');
         $options  = $provider ? ['_provider' => $provider] : [];
+        if ($this->resolver->resolveAgentReasoning($playerId, 'gatekeeper')) {
+            $options['reasoning'] = [
+                'enabled'      => true,
+                'budget_tokens' => $this->resolver->resolveAgentBudgetTokens($playerId, 'gatekeeper'),
+            ];
+        }
         $messages = [];
         if ($systemPrompt !== null) {
             $messages[] = ['role' => 'system', 'content' => $systemPrompt];
@@ -269,6 +275,12 @@ class TagNormalizerService
         $model    = $this->resolver->resolveAgentModel($playerId, 'optimizer_fast');
         $provider = $this->resolver->resolveAgentProvider($playerId, 'optimizer_fast');
         $options  = $provider ? ['_provider' => $provider] : [];
+        if ($this->resolver->resolveAgentReasoning($playerId, 'optimizer_fast')) {
+            $options['reasoning'] = [
+                'enabled'      => true,
+                'budget_tokens' => $this->resolver->resolveAgentBudgetTokens($playerId, 'optimizer_fast'),
+            ];
+        }
         $messages = [];
         if ($systemPrompt !== null) {
             $messages[] = ['role' => 'system', 'content' => $systemPrompt];

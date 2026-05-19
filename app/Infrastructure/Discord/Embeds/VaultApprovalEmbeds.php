@@ -11,7 +11,7 @@ class VaultApprovalEmbeds
 
     /**
      * Embed de aprobación con botones (pendingId en custom_id de botones)
-     * Devuelve el array listo para pasar como \$extra a sendFollowUp().
+     * Devuelve el array listo para pasar como $extra a sendFollowUp().
      *
      * @param array{name_es: string, name_en: string, optimized_text_en: string, semantic_tag_query: string} $optimized
      * @param string[] $tagSlugs
@@ -24,45 +24,45 @@ class VaultApprovalEmbeds
 
         return [
             'embeds' => [[
-                'title'       => 'Vault Preview — Revisión Semántica',
-                'color'       => self::COLOR_GOLD,
-                'fields'      => [
+                'title'  => __('discord.vault_approval_preview_title'),
+                'color'  => self::COLOR_GOLD,
+                'fields' => [
                     [
-                        'name'   => 'Nombre (ES)',
+                        'name'   => __('discord.vault_approval_field_name_es'),
                         'value'  => $optimized['name_es'],
                         'inline' => true,
                     ],
                     [
-                        'name'   => 'Nombre (EN)',
+                        'name'   => __('discord.vault_approval_field_name_en'),
                         'value'  => $optimized['name_en'],
                         'inline' => true,
                     ],
                     [
-                        'name'   => 'Texto Optimizado (Vectorial)',
+                        'name'   => __('discord.vault_approval_field_optimized'),
                         'value'  => "```\n{$previewText}\n```",
                         'inline' => false,
                     ],
                     [
-                        'name'   => 'Tags (Taxonomía)',
-                        'value'  => implode(', ', $tagSlugs) ?: 'Ninguno',
+                        'name'   => __('discord.vault_approval_field_tags'),
+                        'value'  => implode(', ', $tagSlugs) ?: __('discord.vault_approval_tags_none'),
                         'inline' => false,
                     ],
                 ],
-                'footer'      => ['text' => '⏱ Esta vista previa expira en 15 minutos.'],
+                'footer' => ['text' => __('discord.vault_approval_footer_expires')],
             ]],
             'components' => [[
                 'type'       => 1,
                 'components' => [
                     [
                         'type'      => 2,
-                        'style'     => 3, // Verde
-                        'label'     => '✅ Aceptar y Guardar',
+                        'style'     => 3,
+                        'label'     => __('discord.vault_approval_btn_approve'),
                         'custom_id' => "vault_approve:{$pendingId}",
                     ],
                     [
                         'type'      => 2,
-                        'style'     => 4, // Rojo
-                        'label'     => '❌ Rechazar',
+                        'style'     => 4,
+                        'label'     => __('discord.vault_approval_btn_reject'),
                         'custom_id' => "vault_reject:{$pendingId}",
                     ],
                 ],
@@ -77,11 +77,11 @@ class VaultApprovalEmbeds
     {
         return [
             'embeds' => [[
-                'title'       => '⏳ Procesando...',
-                'description' => 'Estamos creando y vectorizando tu Vault. Esto tomará unos segundos.',
+                'title'       => __('discord.vault_processing_title'),
+                'description' => __('discord.vault_processing_desc'),
                 'color'       => self::COLOR_BLUE,
             ]],
-            'components' => [], // Quita los botones
+            'components' => [],
         ];
     }
 
@@ -92,8 +92,8 @@ class VaultApprovalEmbeds
     {
         return [
             'embeds' => [[
-                'title'       => '❌ Creación Cancelada',
-                'description' => 'El Vault no ha sido creado. Los datos han sido descartados de forma segura.',
+                'title'       => __('discord.vault_rejected_title'),
+                'description' => __('discord.vault_rejected_desc'),
                 'color'       => self::COLOR_RED,
             ]],
             'components' => [],
@@ -107,8 +107,8 @@ class VaultApprovalEmbeds
     {
         return [
             'embeds' => [[
-                'title'       => '✅ Vault Creado Exitosamente',
-                'description' => "Tu nuevo espacio de rol está listo: <#{$channelId}>\n¡Disfruta de la aventura!",
+                'title'       => __('discord.vault_approved_title'),
+                'description' => __('discord.vault_approved_desc', ['channel' => $channelId]),
                 'color'       => self::COLOR_GREEN,
             ]],
             'components' => [],

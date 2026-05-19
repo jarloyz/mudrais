@@ -3,11 +3,15 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Domains\Community\Models\Guild;
+use App\Domains\Community\Models\GuildMember;
 use App\Http\Controllers\Controller;
+use App\Models\DiscordBot;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\Uid\Uuid;
 
 class BotInviteController extends Controller
 {
@@ -64,12 +68,42 @@ class BotInviteController extends Controller
         $player = Auth::guard('player_web')->user();
 
         try {
-            $guild = Guild::firstOrCreate(
-                ['discord_guild_id' => $guildId],
-                ['owner_discord_id' => $player->discord_id]
-            );
+            DB::transaction(function () use ($guildId, $player, &$guild) {
+                $guild = Guild::firstOrCreate(
+                    ['discord_guild_id' => $guildId],
+                    ['owner_discord_id' => $player->discord_id]
+                );
 
-            Log::info('[BotInviteController@callback] Bot instalado en guild', [
+                // Registrar bot alpha en guild_bots si no está ya vinculado
+                $alphaBot = DiscordBot::where('slug', 'alpha')->first();
+                if ($alphaBot && ! DB::table('guild_bots')->where('guild_id', $guild->id)->where('discord_bot_id', $alphaBot->id)->exists()) {
+                    DB::table('guild_bots')->insert([
+                        'id'             => (string) Uuid::v7(),
+                        'guild_id'       => $guild->id,
+                        'discord_bot_id' => $alphaBot->id,
+                        'installed_at'   => now(),
+                        'created_at'     => now(),
+                        'updated_at'     => now(),
+                    ]);
+                    Log::info('[BotInviteController@callback] Bot alpha vinculado a guild', [
+                        'guild_id' => $guild->id,
+                        'bot_id'   => $alphaBot->id,
+                    ]);
+                }
+
+                // El player que instala el bot es admin de la guild
+                GuildMember::updateOrCreate(
+                    ['player_id' => $player->id, 'guild_id' => $guild->id],
+                    ['role' => 'admin']
+                );
+
+                Log::info('[BotInviteController@callback] Membresia admin creada', [
+                    'guild_id'  => $guild->id,
+                    'player_id' => $player->id,
+                ]);
+            });
+
+            Log::info('[BotInviteController@callback] Bot alpha instalado en guild', [
                 'guild_id'         => $guild->id,
                 'discord_guild_id' => $guildId,
                 'player_id'        => $player->id,
@@ -80,7 +114,7 @@ class BotInviteController extends Controller
                 ->with('guild_discord_id', $guildId)
                 ->with('was_created', $guild->wasRecentlyCreated);
         } catch (\Exception $e) {
-            Log::error('[BotInviteController@callback] Error al registrar guild', [
+            Log::error('[BotInviteController@callback] Error al registrar guild o asignar rol', [
                 'guild_id'  => $guildId,
                 'player_id' => $player->id,
                 'exception' => get_class($e),

@@ -100,7 +100,7 @@ class EnsureDiscordCommandPermissionTest extends TestCase
         $this->assertTrue(json_decode($response->getContent(), true)['passed']);
     }
 
-    public function test_unregistered_player_with_non_public_command_returns_ephemeral(): void
+    public function test_unregistered_player_with_non_public_command_sets_force_registro_flag(): void
     {
         $guild   = $this->makeGuild();
         $request = $this->makeRequest([
@@ -110,11 +110,14 @@ class EnsureDiscordCommandPermissionTest extends TestCase
             'member'   => ['user' => ['id' => 'nonexistent_999']],
         ], $guild);
 
-        $response = $this->middleware->handle($request, fn ($req) => response()->json(['passed' => true]));
-        $body     = json_decode($response->getContent(), true);
+        $response = $this->middleware->handle($request, fn ($req) => response()->json([
+            'passed'         => true,
+            'force_registro' => $req->attributes->get('force_registro', false),
+        ]));
+        $body = json_decode($response->getContent(), true);
 
-        $this->assertEquals(4, $body['type']);
-        $this->assertEquals(64, $body['data']['flags']);
+        $this->assertTrue($body['passed']);
+        $this->assertTrue($body['force_registro']);
     }
 
     public function test_player_with_insufficient_role_returns_ephemeral(): void

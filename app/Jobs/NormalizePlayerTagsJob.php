@@ -28,6 +28,9 @@ class NormalizePlayerTagsJob implements ShouldQueue
      * @param list<string> $redLines
      * @param list<string> $yellowLines
      * @param list<string> $affinities
+     * @param ShouldQueue|null $continuation Job que se ejecuta al final de la cadena interna,
+     *                                       después de IndexPlayerStyleJob. Útil para enviar
+     *                                       mensajes de éxito solo cuando la indexación terminó.
      */
     public function __construct(
         public readonly PlayerArchetypeProfile $profile,
@@ -38,6 +41,7 @@ class NormalizePlayerTagsJob implements ShouldQueue
         public readonly array                  $rawYellowLines = [],
         public readonly array                  $rawAffinities  = [],
         public readonly string                 $semanticTagQuery = '',
+        public readonly ?ShouldQueue           $continuation   = null,
     ) {
         $this->onQueue('tags');
     }
@@ -72,13 +76,20 @@ class NormalizePlayerTagsJob implements ShouldQueue
             $tagJobs = array_merge($tagJobs, $this->buildContext($profileId, $concepts, [], 'semantic_match'));
         }
 
-        Bus::chain([...$tagJobs, new IndexPlayerStyleJob($profileId)])
+        $chain = [...$tagJobs, new IndexPlayerStyleJob($profileId)];
+
+        if ($this->continuation !== null) {
+            $chain[] = $this->continuation;
+        }
+
+        Bus::chain($chain)
             ->onQueue('tags')
             ->dispatch();
 
         Log::info('NormalizePlayerTagsJob: chain despachado.', [
-            'profile_id' => $profileId,
-            'tag_jobs'   => count($tagJobs),
+            'profile_id'       => $profileId,
+            'tag_jobs'         => count($tagJobs),
+            'has_continuation' => $this->continuation !== null,
         ]);
     }
 

@@ -42,17 +42,61 @@ return [
     ],
 
     'discord' => [
+        // ── Legacy keys — backward-compat, siguen siendo leídas por código existente ──
         'app_id'          => env('DISCORD_APP_ID'),
         'bot_token'       => env('DISCORD_BOT_TOKEN'),
+        'public_key'      => env('DISCORD_PUBLIC_KEY'),
         'client_id'       => env('DISCORD_CLIENT_ID'),
         'client_secret'   => env('DISCORD_CLIENT_SECRET'),
         'redirect'        => env('DISCORD_REDIRECT_URI'),
         'bot_redirect'    => env('DISCORD_BOT_REDIRECT_URI'),
         'bot_permissions' => env('DISCORD_BOT_PERMISSIONS', '0'),
         'stateless'       => env('DISCORD_STATELESS', false),
+        'sync_url'        => env('DISCORD_SYNC_URL'),
         // URL interna usada por los jobs dentro de Docker para llamar al stub local.
-        // Independiente de APP_URL, que puede apuntar a ngrok.
         'internal_url'    => env('APP_INTERNAL_URL', 'http://laravel.test'),
+
+        // ── Mapa multi-bot: app_id → config ─────────────────────────────────────────
+        // array_filter descarta entradas cuya clave sea null (bots no configurados).
+        'bots' => array_filter([
+            env('DISCORD_APP_ID') => [
+                'slug'       => 'alpha',
+                'public_key' => env('DISCORD_PUBLIC_KEY'),
+                'bot_token'  => env('DISCORD_BOT_TOKEN'),
+                'tier'       => 1,  // slash commands, botones, modals
+            ],
+            env('DISCORD_APP_ID_BETA') => [
+                'slug'       => 'beta',
+                'public_key' => env('DISCORD_PUBLIC_KEY_BETA'),
+                'bot_token'  => env('DISCORD_BOT_TOKEN_BETA'),
+                'tier'       => 2,  // + Gateway: lee mensajes en hilos privados
+            ],
+            env('DISCORD_APP_ID_GAMMA') => [
+                'slug'       => 'gamma',
+                'public_key' => env('DISCORD_PUBLIC_KEY_GAMMA'),
+                'bot_token'  => env('DISCORD_BOT_TOKEN_GAMMA'),
+                'tier'       => 3,  // + Gateway: canales de voz y llamadas
+            ],
+        ]),
+    ],
+
+    'discord_beta' => [
+        'client_id'       => env('DISCORD_CLIENT_ID_BETA'),
+        'client_secret'   => env('DISCORD_CLIENT_SECRET_BETA'),
+        'redirect'        => env('DISCORD_REDIRECT_URI_BETA'),
+        'bot_redirect'    => env('DISCORD_BOT_REDIRECT_URI_BETA'),
+        'bot_permissions' => env('DISCORD_BOT_PERMISSIONS_BETA', '0'),
+        'stateless'       => env('DISCORD_STATELESS_BETA', false),
+        'sync_url'        => env('DISCORD_SYNC_URL_BETA'),
+    ],
+
+    'discord_gamma' => [
+        'client_id'       => env('DISCORD_CLIENT_ID_GAMMA'),
+        'client_secret'   => env('DISCORD_CLIENT_SECRET_GAMMA'),
+        'redirect'        => env('DISCORD_REDIRECT_URI_GAMMA'),
+        'bot_redirect'    => env('DISCORD_BOT_REDIRECT_URI_GAMMA'),
+        'bot_permissions' => env('DISCORD_BOT_PERMISSIONS_GAMMA', '0'),
+        'stateless'       => env('DISCORD_STATELESS_GAMMA', false),
     ],
 
     'qdrant' => [
@@ -71,6 +115,12 @@ return [
     'openai' => [
         'key' => env('OPENAI_API_KEY'),
         'moderation_timeout' => env('OPENAI_MODERATION_TIMEOUT', 5),
+    ],
+
+    'speechmatics' => [
+        'key'      => env('SPEECHMATICS_API_KEY'),
+        'language' => env('SPEECHMATICS_LANGUAGE', 'es'),
+        'voice'    => env('SPEECHMATICS_VOICE', 'sarah'),
     ],
 
 ];

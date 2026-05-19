@@ -60,22 +60,44 @@
         </x-filament::section>
     </div>
 
-    {{-- Instalación del bot --}}
-    <x-filament::section icon="heroicon-o-server-stack">
-        <x-slot name="heading">Instalar el Bot en tu Servidor</x-slot>
-        <x-slot name="description">
-            Agrega el bot a tu servidor de Discord para activar los comandos de roleplay
-            y administrar tu comunidad desde ahí.
-        </x-slot>
+    {{-- Instalación de bots --}}
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
 
-        <x-filament::button
-            tag="a"
-            href="{{ route('invite.bot.redirect') }}"
-            icon="heroicon-m-plus"
-            size="lg"
-        >
-            Instalar Bot en mi servidor
-        </x-filament::button>
-    </x-filament::section>
+        <x-filament::section icon="heroicon-o-server-stack">
+            <x-slot name="heading">Bot Principal</x-slot>
+            <x-slot name="description">
+                Comandos de roleplay, registro de perfil y administración de comunidad.
+            </x-slot>
+
+            <x-filament::button
+                tag="a"
+                href="{{ route('invite.bot.redirect') }}"
+                icon="heroicon-m-plus"
+                size="lg"
+            >
+                Instalar Bot en mi servidor
+            </x-filament::button>
+        </x-filament::section>
+
+        <x-filament::section icon="heroicon-o-microphone">
+            <x-slot name="heading">Bot de Voz</x-slot>
+            <x-slot name="description">
+                Entrevistas de perfil por voz directamente en tus canales de Discord.
+                Usa <code class="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">/voice-interview</code>
+                una vez instalado.
+            </x-slot>
+
+            <x-filament::button
+                tag="a"
+                href="{{ route('invite.bot-gamma.redirect') }}"
+                icon="heroicon-m-microphone"
+                color="info"
+                size="lg"
+            >
+                Instalar Bot de Voz
+            </x-filament::button>
+        </x-filament::section>
+
+    </div>
 
 </x-filament-panels::page>

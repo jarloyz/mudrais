@@ -24,7 +24,7 @@ enum PromptPlaceholder: string
     case ContextData = '{context_data_json}';
 
     /**
-     * Datos del perfil semántico del jugador. Solo para pipeline de perfil (OptimizerProfileAgent).
+     * Datos del perfil semántico del jugador. Solo para pipeline de perfil (ProfileOptimizerAgent).
      * Fuente: PlayerArchetypeProfile.positive_prefs + raw_profile.
      *
      * @deprecated en entity_type system_prompts — usar {context_data_json} para Context Entities.

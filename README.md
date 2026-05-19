@@ -1,124 +1,175 @@
-# Mudrais
+# MUDRAIS
 
-Este proyecto es el backend de Historia Pipeline, migrado a una arquitectura DDD con Laravel, Filament para administración y Alpine.js para interactividad. Utiliza contenedores de Docker mediante Laravel Sail para facilitar el desarrollo local, garantizando un entorno idéntico y eliminando problemas de drivers en distintas máquinas.
+**Multi-User Dynamic Roleplay AI System** — a semantic matchmaking engine built on an asynchronous, model-agnostic enterprise architecture. The platform eliminates static onboarding forms through two multimodal abstraction layers: **MUDRAIS Weaver** and **MUDRAIS Voice**.
 
-## Requisitos Previos
+---
 
-Para levantar este proyecto necesitas tener instalado:
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) o Docker Engine con Docker Compose.
-- PHP y Composer (solo para la instalación inicial de dependencias).
-- Node.js y NPM (opcional, ya que también se pueden ejecutar mediante Sail).
+## MUDRAIS Weaver
 
-## Configuración y Variables de Entorno
+Weaver is a conversational AI agent that replaces rigid modals and forms entirely. Instead of presenting a static questionnaire, the agent interacts with the user through natural chat — extracting metadata, evaluating context, and dynamically structuring a validated JSON schema in the background. A cold data-collection step becomes a warm, functional onboarding experience.
 
-1. Clona el proyecto y ve a la carpeta de la aplicación:
+**How it works:**
+
+```
+User types freely in Discord
+        │
+        ▼ Slash command trigger
+[Weaver Agent — Gatekeeper LLM]
+  Natural language → structured profile fields (JSON)
+        │
+        ▼ IndexAvatarJob (async, Redis queue)
+[Context Optimizer Agent]
+  Profile JSON → semantic_text + embedding query
+        │
+        ▼
+[Qdrant — matchmaking_hub]
+  Upsert with Named Vectors (2048-dim) + guild payload filters
+```
+
+## MUDRAIS Voice
+
+Voice is the multimodal layer. The user joins a call or sends a voice note and speaks freely — profile, interests, archetype, narrative preferences. No keyboard required.
+
+The pipeline uses **Speechmatics** for ultra-high-fidelity real-time transcription. The raw transcript feeds the AI orchestrator, which reasons over the response, extracts psychological and narrative variables, and produces a fully structured profile vector — all without the user filling a single field.
+
+**How it works:**
+
+```
+User speaks in voice call / sends voice note
+        │
+        ▼ voice-bridge (Node.js + Docker)
+[Speechmatics API — real-time transcription]
+  Audio → raw text transcript
+        │
+        ▼ HTTP → Laravel / Redis queue
+[Weaver Agent pipeline]
+  Transcript → structured JSON → 2048-dim vector → Qdrant
+```
+
+The `voice-bridge` service is a standalone Node.js container (see `voice-bridge/`) that connects to Discord's voice gateway, streams audio to Speechmatics, and forwards the transcript to Laravel Horizon for async processing.
+
+---
+
+This project is the backend of Historia Pipeline, migrated to a DDD architecture using Laravel, Filament for administration, and Alpine.js for interactivity. It uses Docker containers via Laravel Sail for local development, ensuring an identical environment across machines and eliminating driver compatibility issues.
+
+## Prerequisites
+
+To run this project you need:
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine with Docker Compose.
+- PHP and Composer (only for the initial dependency installation).
+- Node.js and NPM (optional — can also be run through Sail).
+
+## Configuration and Environment Variables
+
+1. Clone the project and navigate to the application folder:
    ```bash
    cd laravel_app
    ```
 
-2. Crea el archivo de configuración copiando el ejemplo:
+2. Create the configuration file by copying the example:
    ```bash
    cp .env.example .env
    ```
 
-3. Asegúrate de configurar las variables de entorno para **Qdrant** (la base de datos vectorial) en tu `.env`. Los valores recomendados para desarrollo local son:
+3. Configure the **Qdrant** (vector database) environment variables in your `.env`. Recommended values for local development:
    ```env
    QDRANT_HOST=localhost
    QDRANT_PORT=6333
    QDRANT_API_KEY=
-   QDRANT_COLLECTION_NAME=tu_coleccion
+   QDRANT_COLLECTION_NAME=your_collection
    ```
 
-## Levantar el Servidor (Entorno Principal)
+## Starting the Server (Main Environment)
 
-Todo el proyecto se levanta utilizando **Laravel Sail** para evitar problemas de compatibilidad y dependencias de drivers.
+The entire project is run using **Laravel Sail** to avoid compatibility issues and driver dependencies.
 
-1. Instala las dependencias de PHP usando Composer localmente o usando un contenedor temporal si no tienes PHP instalado:
+1. Install PHP dependencies using Composer locally, or use a temporary container if you don't have PHP installed:
    ```bash
    composer install
    ```
-   *(Si no tienes Composer instalado en tu máquina, puedes usar el contenedor de Docker para instalar las dependencias, consulta [la documentación de Sail](https://laravel.com/docs/sail#installing-composer-dependencies-for-existing-projects))*
+   *(If you don't have Composer installed locally, you can use a Docker container — see [Sail's documentation](https://laravel.com/docs/sail#installing-composer-dependencies-for-existing-projects))*
 
-2. Levanta los servicios de Docker (PostgreSQL, Qdrant, Redis y Ngrok) en segundo plano:
+2. Start the Docker services (PostgreSQL, Qdrant, Redis, and Ngrok) in the background:
    ```bash
    ./vendor/bin/sail up -d
    ```
 
-3. Genera la clave de la aplicación:
+3. Generate the application key:
    ```bash
    ./vendor/bin/sail artisan key:generate
    ```
 
-4. Ejecuta las migraciones de la base de datos y los seeders:
+4. Run database migrations and seeders:
    ```bash
    ./vendor/bin/sail artisan migrate --seed
    ```
 
-5. Instala las dependencias de Node.js:
+5. Install Node.js dependencies:
    ```bash
    ./vendor/bin/sail npm install
    ```
 
-## Workers Necesarios para el Funcionamiento
+## Required Workers
 
-Para que el ecosistema y la pipeline funcionen correctamente de forma asíncrona, debes ejecutar ciertos procesos en terminales separadas (workers). Recuerda usar **siempre** Sail para estos comandos:
+For the ecosystem and pipeline to function correctly in async mode, run the following processes in separate terminals. Always use Sail for these commands:
 
-### 1. Worker de Colas (Jobs Async)
-Para procesar tareas en segundo plano (ej. llamadas a LLMs, procesamiento de texto, etc.):
+### 1. Queue Worker (Async Jobs)
+Processes background tasks (LLM calls, text processing, etc.):
 ```bash
 ./vendor/bin/sail artisan queue:work
 ```
-*También puedes usar `queue:listen` en desarrollo para que recoja los cambios de código automáticamente sin tener que reiniciarlo.*
+*Use `queue:listen` in development to automatically pick up code changes without restarting.*
 
-### 2. Servidor de Frontend (Vite)
-Para compilar y servir los assets en tiempo real (TailwindCSS, Alpine.js, scripts de Filament):
+### 2. Frontend Server (Vite)
+Compiles and serves assets in real time (TailwindCSS, Alpine.js, Filament scripts):
 ```bash
 ./vendor/bin/sail npm run dev
 ```
 
-### 3. Tareas Programadas (Scheduler) (Opcional, si hay crons)
-Si hay tareas que se ejecutan cada minuto, necesitas levantar el worker del scheduler:
+### 3. Scheduler (Optional)
+If there are tasks that run every minute:
 ```bash
 ./vendor/bin/sail artisan schedule:work
 ```
 
-## Servicios que Incluye Docker (compose.yaml)
+## Docker Services (compose.yaml)
 
-Al hacer `sail up -d` se levantan los siguientes servicios:
-- **laravel.test**: El servidor web principal con PHP 8.x.
-- **pgsql**: Base de datos principal PostgreSQL.
-- **qdrant**: Base de datos vectorial (accesible en `http://localhost:6333/dashboard`).
-- **redis**: Sistema de caché y colas.
-- **ngrok**: Útil si necesitas exponer tu proyecto local temporalmente.
+Running `sail up -d` starts the following services:
+- **laravel.test**: Main web server with PHP 8.x + Supervisor (Horizon + Discord gateways).
+- **pgsql**: PostgreSQL relational database.
+- **qdrant**: Vector database (dashboard at `http://localhost:6333/dashboard`).
+- **redis**: Cache and queue backend (used by Horizon and voice-bridge).
+- **voice-bridge**: Node.js service that connects to Discord's voice gateway and delegates to Speechmatics + Laravel.
+- **ngrok**: Exposes your local project temporarily (development only).
 
-## Documentación
+## Documentation
 
-La documentación técnica actualizada vive en [`docs/functional/`](docs/functional/README.md).
+Technical documentation lives in [`docs/functional/`](docs/functional/README.md).
 
-| Documento | Propósito |
-|-----------|-----------|
-| [architecture.md](docs/functional/architecture.md) | Stack, DDD, modelos, bounded contexts, glosario |
-| [archetype-setup.md](docs/functional/archetype-setup.md) | Guía completa para crear un archetype desde cero en Filament |
-| [prompt-configuration.md](docs/functional/prompt-configuration.md) | Cómo configurar, mantener y depurar prompts de IA por archetype |
-| [prompt-flow.md](docs/functional/prompt-flow.md) | Pipelines de IA: orígenes, placeholders, agentes involucrados |
-| [discord-commands.md](docs/functional/discord-commands.md) | Referencia de slash commands: payloads, respuestas, jobs |
-| [queue-workers.md](docs/functional/queue-workers.md) | Configuración de workers: Docker, VPS + Supervisor, Shared Hosting + Cron |
+| Document | Purpose |
+|---|---|
+| [architecture.md](docs/functional/architecture.md) | Stack, DDD, models, bounded contexts, glossary |
+| [archetype-setup.md](docs/functional/archetype-setup.md) | Full guide for creating an archetype from scratch in Filament |
+| [prompt-configuration.md](docs/functional/prompt-configuration.md) | How to configure, maintain, and debug AI prompts per archetype |
+| [prompt-flow.md](docs/functional/prompt-flow.md) | AI pipelines: origins, placeholders, agents involved |
+| [discord-commands.md](docs/functional/discord-commands.md) | Slash command reference: payloads, responses, jobs |
+| [queue-workers.md](docs/functional/queue-workers.md) | Worker configuration: Docker, VPS + Supervisor, Shared Hosting + Cron |
 
-**Guías de usuario**
+**User guides**
 
-| Documento | Idioma |
-|-----------|--------|
-| [user-guide-es.md](docs/user-guide-es.md) | Español |
+| Document | Language |
+|---|---|
+| [user-guide-es.md](docs/user-guide-es.md) | Spanish |
 | [user-guide-en.md](docs/user-guide-en.md) | English |
 
-> Los documentos en `docs/obsolete/` y `docs/plans/` son referencia histórica y pueden no estar actualizados.
+> Documents in `docs/obsolete/` and `docs/plans/` are historical reference and may not be up to date.
 
-## Licencia
+## License
 
-Distribuido bajo la [MIT License](LICENSE).
+Distributed under the [MIT License](LICENSE).
 
-## Notas Adicionales y Reglas
+## Notes
 
-- **Comandos de Artisan:** Nunca ejecutes `php artisan ...` directamente. Utiliza siempre la envoltura `./vendor/bin/sail artisan ...` para evitar problemas con drivers de bases de datos o extensiones de PHP faltantes.
-- **Estado del Proyecto:** Cualquier tarea o progreso se actualiza en el archivo `estado_proyecto.json` por los agentes.
-- **Acceso:** Puedes acceder a la aplicación en `http://localhost` y a la base de datos vectorial en `http://localhost:6333/dashboard`.
+- **Artisan commands:** Never run `php artisan ...` directly. Always use `./vendor/bin/sail artisan ...` to avoid database driver or missing PHP extension issues.
+- **Project state:** All tasks and progress are tracked in `estado_proyecto.json` by the agents.
+- **Access:** The application is available at `http://localhost` and the vector database dashboard at `http://localhost:6333/dashboard`.

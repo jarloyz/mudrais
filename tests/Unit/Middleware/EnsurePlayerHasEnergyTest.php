@@ -71,7 +71,7 @@ class EnsurePlayerHasEnergyTest extends TestCase
     public function test_passes_when_no_player_attached(): void
     {
         $guild    = $this->makeGuild();
-        $request  = $this->makeRequest(['type' => 2, 'data' => ['name' => 'buscar-partner']], null, $guild);
+        $request  = $this->makeRequest(['type' => 2, 'data' => ['name' => 'search']], null, $guild);
         $response = $this->middleware->handle($request, fn ($req) => response()->json(['passed' => true]));
 
         $this->assertTrue(json_decode($response->getContent(), true)['passed']);
@@ -91,23 +91,23 @@ class EnsurePlayerHasEnergyTest extends TestCase
     {
         $player  = $this->makePlayer(2);
         $guild   = $this->makeGuild();
-        $request = $this->makeRequest(['type' => 2, 'data' => ['name' => 'buscar-partner']], $player, $guild);
+        $request = $this->makeRequest(['type' => 2, 'data' => ['name' => 'search']], $player, $guild);
 
         $response = $this->middleware->handle($request, fn ($req) => response()->json(['passed' => true]));
         $body     = json_decode($response->getContent(), true);
 
         $this->assertEquals(4, $body['type']);
         $this->assertEquals(64, $body['data']['flags']);
-        $this->assertStringContainsString('energía', $body['data']['content']);
-        $this->assertStringContainsString('2', $body['data']['content']);
+        $this->assertStringContainsString('5', $body['data']['content']);  // costo requerido
+        $this->assertStringContainsString('2', $body['data']['content']);  // energía actual
     }
 
     public function test_passes_when_energy_is_exactly_enough(): void
     {
-        $cost    = config('historia.discord_command_energy.buscar-partner', 5);
+        $cost    = config('historia.discord_command_energy.search', 5);
         $player  = $this->makePlayer($cost);
         $guild   = $this->makeGuild();
-        $request = $this->makeRequest(['type' => 2, 'data' => ['name' => 'buscar-partner']], $player, $guild);
+        $request = $this->makeRequest(['type' => 2, 'data' => ['name' => 'search']], $player, $guild);
 
         $response = $this->middleware->handle($request, fn ($req) => response()->json(['passed' => true]));
 
@@ -118,7 +118,7 @@ class EnsurePlayerHasEnergyTest extends TestCase
     {
         $player  = $this->makePlayer(100);
         $guild   = $this->makeGuild();
-        $request = $this->makeRequest(['type' => 2, 'data' => ['name' => 'buscar-partner']], $player, $guild);
+        $request = $this->makeRequest(['type' => 2, 'data' => ['name' => 'search']], $player, $guild);
 
         $response = $this->middleware->handle($request, fn ($req) => response()->json(['passed' => true]));
 

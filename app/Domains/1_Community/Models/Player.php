@@ -44,6 +44,7 @@ class Player extends Authenticatable implements FilamentUser, HasName
         'is_active',
         'tutorial_completed',
         'global_banned',
+        'preferred_locale',
     ];
 
     protected $attributes = [
@@ -150,6 +151,38 @@ class Player extends Authenticatable implements FilamentUser, HasName
 
             return $transaction;
         });
+    }
+
+    /**
+     * Descuenta energía de acción del jugador (action points para turnos de rol).
+     *
+     * @throws \RuntimeException si la energía es insuficiente
+     */
+    public function deductEnergy(int $amount, string $description, array $metadata = []): void
+    {
+        Log::debug('[Player@deductEnergy] Iniciando deducción', [
+            'player_id'   => $this->id,
+            'amount'      => $amount,
+            'description' => $description,
+        ]);
+
+        if ($this->energy < $amount) {
+            Log::warning('[Player@deductEnergy] Energía insuficiente', [
+                'player_id' => $this->id,
+                'energy'    => $this->energy,
+                'required'  => $amount,
+            ]);
+            throw new \RuntimeException("Energía insuficiente: se requieren {$amount} puntos, tienes {$this->energy}.");
+        }
+
+        $this->decrement('energy', $amount);
+        $this->refresh();
+
+        Log::info('[Player@deductEnergy] Energía deducida', [
+            'player_id'    => $this->id,
+            'amount'       => $amount,
+            'energy_after' => $this->energy,
+        ]);
     }
 
     /**

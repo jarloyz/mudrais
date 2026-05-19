@@ -1,5 +1,7 @@
 <?php
 
+require __DIR__.'/voice.php';
+
 use App\Http\Controllers\Api\DiscordController;
 use App\Http\Controllers\Api\SystemHealthController;
 use App\Http\Controllers\Api\V1\PlayerController;
@@ -30,6 +32,7 @@ Route::post('/api/discord/interactions', [DiscordController::class, 'handle'])
     ->middleware([
         \App\Http\Middleware\LogDiscordInteraction::class,
         \App\Http\Middleware\VerifyDiscordSignature::class,
+        \App\Http\Middleware\SetDiscordLocale::class,
         \App\Http\Middleware\EnsureDiscordGuildRegistered::class,
         \App\Http\Middleware\EnsureDiscordCommandPermission::class,
         \App\Http\Middleware\EnsurePlayerHasEnergy::class,
@@ -57,7 +60,11 @@ Route::patch('/local-discord-stub/webhooks/{appId}/{token}/messages/@original',
     }
 );
 
+use App\Http\Controllers\Auth\BotBetaInviteController;
+use App\Http\Controllers\Auth\BotGammaInviteController;
 use App\Http\Controllers\Auth\BotInviteController;
+use App\Http\Controllers\Auth\DiscordBetaOAuthController;
+use App\Http\Controllers\Auth\DiscordGammaOAuthController;
 use App\Http\Controllers\Auth\DiscordOAuthController;
 use App\Http\Controllers\Api\GuildLifecycleController;
 use App\Http\Controllers\Api\V2\ChatController;
@@ -103,5 +110,33 @@ Route::get('/discord/login/error', fn () => view('discord.login-error'))
 Route::prefix('invite/bot')->name('invite.bot.')->middleware('auth:player_web')->group(function () {
     Route::get('/redirect', [BotInviteController::class, 'redirect'])->name('redirect');
     Route::get('/callback', [BotInviteController::class, 'callback'])->name('callback');
+});
+
+// ── Beta ─────────────────────────────────────────────────────────────────────
+
+// Ruta A (beta): login de usuario via app Discord beta (scope: identify email)
+Route::prefix('auth/discord-beta')->name('auth.discord-beta.')->group(function () {
+    Route::get('/redirect', [DiscordBetaOAuthController::class, 'redirect'])->name('redirect');
+    Route::get('/callback', [DiscordBetaOAuthController::class, 'callback'])->name('callback');
+});
+
+// Ruta B (beta): instalación del bot beta
+Route::prefix('invite/bot-beta')->name('invite.bot-beta.')->middleware('auth:player_web')->group(function () {
+    Route::get('/redirect', [BotBetaInviteController::class, 'redirect'])->name('redirect');
+    Route::get('/callback', [BotBetaInviteController::class, 'callback'])->name('callback');
+});
+
+// ── Gamma ─────────────────────────────────────────────────────────────────────
+
+// Ruta A (gamma): login de usuario via app Discord gamma (scope: identify email)
+Route::prefix('auth/discord-gamma')->name('auth.discord-gamma.')->group(function () {
+    Route::get('/redirect', [DiscordGammaOAuthController::class, 'redirect'])->name('redirect');
+    Route::get('/callback', [DiscordGammaOAuthController::class, 'callback'])->name('callback');
+});
+
+// Ruta B (gamma): instalación del bot de voz gamma
+Route::prefix('invite/bot-gamma')->name('invite.bot-gamma.')->middleware('auth:player_web')->group(function () {
+    Route::get('/redirect', [BotGammaInviteController::class, 'redirect'])->name('redirect');
+    Route::get('/callback', [BotGammaInviteController::class, 'callback'])->name('callback');
 });
 

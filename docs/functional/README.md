@@ -15,6 +15,7 @@ Leer en el orden sugerido si es tu primera vez.
 | [prompt-flow.md](prompt-flow.md) | Dev | Todos los pipelines de IA: orígenes, placeholders, agentes involucrados |
 | [discord-commands.md](discord-commands.md) | Dev / QA | Referencia completa de slash commands: payloads, respuestas, jobs |
 | [queue-workers.md](queue-workers.md) | Dev / DevOps | Configuración de workers: Docker, VPS + Supervisor, Shared Hosting + Cron |
+| [v2-registration-flow.md](v2-registration-flow.md) | Dev | V2: auto-redirect to /registro for any unregistered player on any command |
 
 ---
 

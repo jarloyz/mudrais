@@ -24,8 +24,8 @@ class ThinkingAiChatGateway implements AiChatGateway
         array $options = [],
         ?array $tools = null,
     ): array {
-        if (! isset($options['thinking'])) {
-            $options['thinking'] = ['type' => 'enabled', 'budget_tokens' => $this->budgetTokens];
+        if (! isset($options['reasoning'])) {
+            $options['reasoning'] = ['enabled' => true, 'budget_tokens' => $this->budgetTokens];
         }
 
         return $this->inner->chat(

@@ -7,7 +7,7 @@ use App\Domains\Narrative\Models\Avatar;
 use App\Domains\Matchmaking\Services\EntityTypePromptBuilderService;
 use App\Enums\IndexingStatus;
 use App\Infrastructure\Ai\Agents\ContextOptimizerAgent;
-use App\Infrastructure\Ai\Agents\StyleOptimizerAgent;
+use App\Infrastructure\Ai\Agents\ProfileOptimizerAgent;
 use App\Jobs\FinalizeAvatarIndexJob;
 use App\Jobs\NormalizeAvatarTagsJob;
 use Illuminate\Bus\Batchable;
@@ -32,7 +32,7 @@ class IndexAvatarJob implements ShouldQueue
 
     public function handle(
         EmbeddingGateway $gateway,
-        StyleOptimizerAgent $styleOptimizer,
+        ProfileOptimizerAgent $profileOptimizer,
         ContextOptimizerAgent $contextOptimizer,
         EntityTypePromptBuilderService $promptBuilder
     ): void {
@@ -114,7 +114,7 @@ class IndexAvatarJob implements ShouldQueue
                 return;
             }
         } else {
-            Log::info('[IndexAvatarJob] Usando StyleOptimizer pipeline (legacy)', [
+            Log::info('[IndexAvatarJob] Usando ProfileOptimizer pipeline (legacy)', [
                 'avatar_id' => $avatar->id,
             ]);
 
@@ -140,7 +140,8 @@ class IndexAvatarJob implements ShouldQueue
             }
 
             try {
-                $optimizedText = $styleOptimizer->optimize($textToOptimize, $playerId);
+                $result        = $profileOptimizer->optimize($textToOptimize, null, $playerId);
+                $optimizedText = $result['optimized_text'];
             } catch (\RuntimeException $e) {
                 Log::error('IndexAvatarJob: optimizer failed.', [
                     'avatar_id' => $avatar->id,
@@ -148,7 +149,7 @@ class IndexAvatarJob implements ShouldQueue
                 ]);
                 $avatar->update([
                     'indexing_status' => IndexingStatus::Failed,
-                    'index_error'     => '[StyleOptimizer] ' . $e->getMessage(),
+                    'index_error'     => '[ProfileOptimizer] ' . $e->getMessage(),
                 ]);
                 return;
             }

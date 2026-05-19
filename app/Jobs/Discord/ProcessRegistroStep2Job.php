@@ -4,8 +4,7 @@ namespace App\Jobs\Discord;
 
 use App\Application\Services\ArchetypeResolverService;
 use App\Application\Services\GuildValidationService;
-use App\Infrastructure\Ai\Agents\ContentSafetyAgent;
-use App\Infrastructure\Ai\Agents\OptimizerProfileAgent;
+use App\Infrastructure\Ai\Agents\ProfileOptimizerAgent;
 use App\Infrastructure\Ai\Agents\ProfileTranslatorAgent;
 use App\Infrastructure\Discord\Embeds\RegistroEmbeds;
 use App\Jobs\NormalizePlayerTagsJob;
@@ -35,8 +34,9 @@ class ProcessRegistroStep2Job implements ShouldQueue
         public readonly string  $discordId,
         public readonly array   $data,
         public readonly string  $token,
-        public readonly ?string $guildId = null,
-        public readonly ?string $username = null,
+        public readonly ?string $guildId    = null,
+        public readonly ?string $username   = null,
+        public readonly ?string $threadId   = null,
     ) {
         $this->onQueue('default');
     }
@@ -45,7 +45,7 @@ class ProcessRegistroStep2Job implements ShouldQueue
         ProfileTranslatorAgent $translator,
         ArchetypeResolverService $archetypeResolver,
         GuildValidationService $guildValidator,
-        OptimizerProfileAgent $optimizer,
+        ProfileOptimizerAgent $optimizer,
         ArchetypeMutatorService $mutatorService,
     ): void
     {
@@ -253,29 +253,30 @@ class ProcessRegistroStep2Job implements ShouldQueue
             return;
         }
 
-        $chain = [];
-
-        $chain[] = new NormalizePlayerTagsJob(
-            $profile,
-            $translated['red_lines']    ?? [],
-            $translated['yellow_lines'] ?? [],
-            $translated['affinities']   ?? [],
-            $rawRedLines,
-            $rawYellowLines,
-            $rawAffinities,
-            $optimizedResult['semantic_tag_query'] ?? ''
+        // SendRegistroSuccessMessageJob se pasa como continuation de NormalizePlayerTagsJob
+        // para garantizar que se envíe DESPUÉS de que IndexPlayerStyleJob complete la indexación.
+        $successJob = new SendRegistroSuccessMessageJob(
+            token:      $this->token,
+            discordId:  $this->discordId,
+            isEdit:     $isEdit,
+            username:   $this->username,
+            threadId:   $this->threadId,
+            guildId:    $this->guildId,
         );
 
-        $chain[] = new SendRegistroSuccessMessageJob(
-            $this->token,
-            $this->discordId,
-            $isEdit,
-            $this->username
-        );
-
-        if (!empty($chain)) {
-            Bus::chain($chain)->dispatch();
-        }
+        Bus::chain([
+            new NormalizePlayerTagsJob(
+                $profile,
+                $translated['red_lines']    ?? [],
+                $translated['yellow_lines'] ?? [],
+                $translated['affinities']   ?? [],
+                $rawRedLines,
+                $rawYellowLines,
+                $rawAffinities,
+                $optimizedResult['semantic_tag_query'] ?? '',
+                $successJob,
+            ),
+        ])->dispatch();
 
         Log::info('[ProcessRegistroStep2Job] Procesamiento completado. La cadena de jobs continuará asíncronamente.', [
             'player_id'  => $player->id,

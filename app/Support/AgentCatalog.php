@@ -50,6 +50,26 @@ class AgentCatalog
             'section' => 'Narrativa',
             'description' => 'Árbitro que bloquea trampas, god-mode y líneas rojas del jugador.',
         ],
+        'optimizer_fast' => [
+            'label' => 'Optimizer Fast',
+            'section' => 'Ingesta',
+            'description' => 'Variante ligera del Optimizer: genera la forma canónica de tags nuevos. Preferir un modelo rápido sin thinking.',
+        ],
+        'interviewer' => [
+            'label' => 'Interviewer',
+            'section' => 'Ingesta',
+            'description' => 'Pipeline /entrevista — usa Gatekeeper (extracción/traducción) y Optimizer (normalización). Este slot controla el agente que formula las preguntas.',
+        ],
+        'interview_opening' => [
+            'label' => 'Interview Opening',
+            'section' => 'Voz',
+            'description' => 'Genera la pregunta de apertura personalizada para la entrevista de voz de cada archetype.',
+        ],
+        'talkator' => [
+            'label' => 'Talkator',
+            'section' => 'Voz',
+            'description' => 'Responde al usuario en streaming durante la entrevista de voz. Frases cortas, sin preguntas.',
+        ],
     ];
 
     /**

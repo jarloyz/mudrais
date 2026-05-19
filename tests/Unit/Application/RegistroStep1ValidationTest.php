@@ -64,7 +64,7 @@ class RegistroStep1ValidationTest extends TestCase
 
         // type:7 — muta el mensaje original (no crea mensaje nuevo, no tiene flags)
         $this->assertSame(7, $json['type']);
-        $this->assertStringContainsString('edad', $json['data']['embeds'][0]['description']);
+        $this->assertStringContainsString('13', $json['data']['embeds'][0]['description']);  // age range lower bound
         $this->assertSame('btn_retry_modal_1', $json['data']['components'][0]['components'][0]['custom_id']);
 
         // Verifica que el cache de retry guardó el input
@@ -81,7 +81,7 @@ class RegistroStep1ValidationTest extends TestCase
 
         $json = $response->getData(true);
         $this->assertSame(7, $json['type']);
-        $this->assertStringContainsString('edad', $json['data']['embeds'][0]['description']);
+        $this->assertStringContainsString('13', $json['data']['embeds'][0]['description']);  // age range lower bound
     }
 
     public function test_datos_validos_devuelve_boton_step2_y_guarda_cache(): void

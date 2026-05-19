@@ -50,10 +50,9 @@ use App\Infrastructure\Ai\Agents\SimpleSceneWriterAgent;
 use App\Infrastructure\Ai\Agents\ComplexSceneWriterAgent;
 use App\Infrastructure\Ai\Agents\ConfiguredChroniclerAgent;
 use App\Infrastructure\Ai\Agents\ConfiguredSummarizerAgent;
-use App\Infrastructure\Ai\Agents\StyleOptimizerAgent;
 use App\Infrastructure\Ai\Agents\ContextOptimizerAgent;
 use App\Infrastructure\Ai\Agents\ArchetypeOptimizerAgent;
-use App\Infrastructure\Ai\Agents\OptimizerProfileAgent;
+use App\Infrastructure\Ai\Agents\ProfileOptimizerAgent;
 use App\Infrastructure\Ai\Agents\VaultOptimizerAgent;
 use App\Infrastructure\Ai\AnthropicChatGateway;
 use App\Infrastructure\Ai\ConfiguredAiChatGateway;
@@ -91,15 +90,22 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        // Discord signature validation: Siempre validar usando la clave pública.
+        // Discord signature validation: soporta multi-bot — busca la public_key
+        // por application_id en el mapa de bots; fallback a DISCORD_PUBLIC_KEY.
         $this->app->bind(DiscordSignatureValidator::class, function () {
-            $publicKey = (string) env('DISCORD_PUBLIC_KEY', '');
+            $fallbackKey = (string) config('services.discord.public_key', '');
+
+            // Construir mapa app_id → public_key desde el config de bots
+            $botsMap = collect(config('services.discord.bots', []))
+                ->mapWithKeys(fn ($bot, $appId) => [$appId => (string) ($bot['public_key'] ?? '')])
+                ->filter()
+                ->all();
 
             if (config('app.env') !== 'production') {
-                return new \App\Services\Discord\TestingSignatureValidator($publicKey);
+                return new \App\Services\Discord\TestingSignatureValidator($fallbackKey, $botsMap);
             }
 
-            return new ProductionSignatureValidator($publicKey);
+            return new ProductionSignatureValidator($fallbackKey, $botsMap);
         });
 
         // Discord webhook follow-up: Siempre usar el cliente de producción.
@@ -197,10 +203,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(SwitchSceneBranchUseCase::class);
 
         $optimizerAgents = [
-            StyleOptimizerAgent::class,
             ContextOptimizerAgent::class,
             ArchetypeOptimizerAgent::class,
-            OptimizerProfileAgent::class,
+            ProfileOptimizerAgent::class,
             VaultOptimizerAgent::class,
         ];
 
@@ -217,6 +222,25 @@ class AppServiceProvider extends ServiceProvider
             \SocialiteProviders\Manager\SocialiteWasCalled::class,
             [\SocialiteProviders\Discord\DiscordExtendSocialite::class, 'handle']
         );
+
+        // Driver secundario para la app Beta — misma implementación Discord,
+        // credenciales distintas leídas de services.discord_beta.
+        \Laravel\Socialite\Facades\Socialite::extend('discord-beta', function ($app) {
+            $config = $app['config']['services.discord_beta'];
+            return \Laravel\Socialite\Facades\Socialite::buildProvider(
+                \SocialiteProviders\Discord\Provider::class,
+                $config
+            );
+        });
+
+        // Driver terciario para la app Gamma (bot de voz) — credenciales de services.discord_gamma.
+        \Laravel\Socialite\Facades\Socialite::extend('discord-gamma', function ($app) {
+            $config = $app['config']['services.discord_gamma'];
+            return \Laravel\Socialite\Facades\Socialite::buildProvider(
+                \SocialiteProviders\Discord\Provider::class,
+                $config
+            );
+        });
 
         \App\Domains\Matchmaking\Models\Archetype::observe(
             \App\Domains\Matchmaking\Observers\ArchetypeObserver::class

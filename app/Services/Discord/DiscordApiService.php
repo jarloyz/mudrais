@@ -14,9 +14,28 @@ class DiscordApiService
     private string $baseUrl = 'https://discord.com/api/v10';
     private string $token;
 
-    public function __construct()
+    public function __construct(?string $token = null)
     {
-        $this->token = config('services.discord.bot_token');
+        $this->token = $token ?? config('services.discord.bot_token');
+    }
+
+    /**
+     * Instancia el servicio con el token del bot de mayor tier instalado en el guild.
+     * Fallback al token legacy si el guild no tiene bots registrados.
+     */
+    public static function forGuild(string $guildId): self
+    {
+        $appId = \App\Domains\Community\Models\Guild::where('discord_guild_id', $guildId)
+            ->first()
+            ?->bots()
+            ->orderByDesc('tier')
+            ->value('app_id');
+
+        $token = $appId
+            ? (config("services.discord.bots.{$appId}.bot_token") ?? config('services.discord.bot_token'))
+            : config('services.discord.bot_token');
+
+        return new self((string) $token);
     }
 
     public function getGuildChannels(string $guildId): ?array

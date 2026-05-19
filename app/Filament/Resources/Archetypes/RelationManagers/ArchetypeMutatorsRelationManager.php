@@ -4,6 +4,8 @@ namespace App\Filament\Resources\Archetypes\RelationManagers;
 
 use App\Domains\Matchmaking\Enums\MutatorStorageMode;
 use App\Domains\Matchmaking\Models\ArchetypeEntityType;
+use App\Jobs\Discord\GenerateInterviewOpeningJob;
+use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -295,6 +297,17 @@ class ArchetypeMutatorsRelationManager extends RelationManager
             ->defaultSort('sort_order')
             ->headerActions([
                 CreateAction::make(),
+                Action::make('generate_opening')
+                    ->label('Generar Pregunta de Apertura')
+                    ->icon('heroicon-o-sparkles')
+                    ->color('info')
+                    ->requiresConfirmation()
+                    ->modalHeading('Generar pregunta de apertura')
+                    ->modalDescription('Se generará una nueva pregunta de apertura de entrevista basada en los mutadores de tipo texto de este arquetipo. La operación puede tardar unos segundos.')
+                    ->action(function ($livewire) {
+                        GenerateInterviewOpeningJob::dispatch($livewire->ownerRecord->id);
+                    })
+                    ->successNotificationTitle('Generando pregunta de apertura en cola...'),
             ])
             ->recordActions([
                 EditAction::make(),

@@ -179,6 +179,18 @@ return [
             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
         ],
 
+        // Conexión dedicada al canal de voz — sin prefix para que el voice-bridge
+        // pueda leer/escribir las claves directamente sin conocer el prefix de Laravel.
+        'voice' => [
+            'url' => env('REDIS_URL'),
+            'host' => env('REDIS_HOST', '127.0.0.1'),
+            'username' => env('REDIS_USERNAME'),
+            'password' => env('REDIS_PASSWORD'),
+            'port' => env('REDIS_PORT', '6379'),
+            'database' => env('REDIS_DB', '0'),
+            'options' => ['prefix' => ''],
+        ],
+
     ],
 
 ];

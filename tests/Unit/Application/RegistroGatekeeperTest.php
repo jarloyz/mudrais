@@ -24,7 +24,7 @@ class RegistroGatekeeperTest extends TestCase
             'type'     => 2,
             'token'    => 'test-token',
             'guild_id' => 'guild-test',
-            'data'     => ['name' => 'registro'],
+            'data'     => ['name' => 'register'],
             'member'   => ['user' => ['id' => $discordId, 'username' => 'tester']],
         ];
     }
@@ -64,7 +64,7 @@ class RegistroGatekeeperTest extends TestCase
         $json     = $response->getData(true);
 
         $this->assertSame(4, $json['type']);
-        $this->assertStringContainsString('Bienvenido', $json['data']['embeds'][0]['title']);
+        $this->assertStringContainsString('MUDRAIS', $json['data']['embeds'][0]['title']);
 
         $customIds = array_column($json['data']['components'][0]['components'], 'custom_id');
         $this->assertContains('btn_reg_hombre', $customIds);
@@ -111,7 +111,7 @@ class RegistroGatekeeperTest extends TestCase
 
         $this->assertSame(4, $json['type']);
         $this->assertSame(64, $json['data']['flags']);
-        $this->assertStringContainsString('50 monedas', $json['data']['content']);
+        $this->assertStringContainsString('50', $json['data']['content']);  // costo en monedas
     }
 
     public function test_jugador_habilitado_recibe_embed_azul(): void
@@ -135,7 +135,7 @@ class RegistroGatekeeperTest extends TestCase
         $json     = $response->getData(true);
 
         $this->assertSame(4, $json['type']);
-        $this->assertStringContainsString('Editar', $json['data']['embeds'][0]['title']);
+        $this->assertStringContainsString('MUDRAIS', $json['data']['embeds'][0]['title']);
         $this->assertSame('btn_abrir_modal_1_edicion', $json['data']['components'][0]['components'][0]['custom_id']);
     }
 }

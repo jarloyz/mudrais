@@ -104,6 +104,16 @@ class DiscordController extends Controller
         // Discord recibe. Solo I/O O(1) permitido (ver regla arriba).
         // ──────────────────────────────────────────────────────────────────────
 
+        // Si el player no estaba registrado, el middleware marcó force_registro.
+        // Cualquier slash command (type 2) se convierte en /registro automáticamente.
+        if ($type === 2 && $request->attributes->get('force_registro')) {
+            Log::info('[DiscordController@handle] force_registro activo — redirigiendo a handleRegistroCommand', [
+                'original_command' => $command,
+                'discord_id'       => $interaction['member']['user']['id'] ?? $interaction['user']['id'] ?? null,
+            ]);
+            return $this->handleRegistroCommand($interaction, $token);
+        }
+
         try {
             return match (true) {
                 // ── PING: handshake de Discord ─────────────────────────────────
@@ -114,16 +124,16 @@ class DiscordController extends Controller
                 $type === 3
                     => $this->handleMessageComponent($interaction, $token),
 
-                // ── /registro: gatekeeper de estado ───────────────────────────
-                $type === 2 && $command === 'registro'
+                // ── /register (ES: /registro): gatekeeper de estado ──────────
+                $type === 2 && $command === 'register'
                     => $this->handleRegistroCommand($interaction, $token),
 
-                // ── /ficha: modal inmediato ────────────────────────────────────
-                $type === 2 && $command === 'ficha'
+                // ── /profile (ES: /ficha): modal inmediato ────────────────────
+                $type === 2 && $command === 'profile'
                     => $this->handleFichaCommand(),
 
-                // ── /create_vault: modal inmediato ─────────────────────────────
-                $type === 2 && $command === 'create_vault'
+                // ── /create-vault: modal inmediato ─────────────────────────────
+                $type === 2 && $command === 'create-vault'
                     => $this->handleCreateVaultCommand($interaction),
 
                 // ── /create: detecta canal → vault → arquetipo → lista + botón ──
@@ -137,6 +147,14 @@ class DiscordController extends Controller
                 // ── /buscar-actividad: deferred → búsqueda multi-vector ────────
                 $type === 2 && $command === 'buscar-actividad'
                     => $this->handleBuscarActividadCommand($interaction, $token),
+
+                // ── /setup-onboarding (beta): persiste canal de entrevistas ──────
+                $type === 2 && $command === 'setup-onboarding'
+                    => $this->handleSetupOnboardingCommand($interaction),
+
+                // ── /voice-interview (gamma): inicia sesión de voz ───────────
+                $type === 2 && $command === 'voice-interview'
+                    => $this->handleVoiceInterviewCommand($interaction),
 
                 // ── Autocomplete ───────────────────────────────────────────────
                 $type === 4
@@ -180,6 +198,137 @@ class DiscordController extends Controller
     // =========================================================================
 
     /**
+     * /voice-interview (gamma) — Encola la señal en Redis para que el voice-bridge
+     * cree un canal de voz privado temporal y edite la respuesta diferida
+     * con un embed efímero que invite al usuario a unirse.
+     *
+     * Devuelve type:5 + data:{flags:64} — Discord muestra "pensando..." solo
+     * para el usuario (~2s) mientras el voice-bridge crea el canal.
+     */
+    private function handleVoiceInterviewCommand(array $interaction): JsonResponse
+    {
+        $discordId = $this->extractDiscordId($interaction);
+        $guildId   = $interaction['guild_id'] ?? null;
+        $rawLocale = $interaction['locale'] ?? 'es';
+        $locale    = str_starts_with((string) $rawLocale, 'es') ? 'es' : 'en';
+        $token     = $interaction['token'] ?? '';
+        $appId     = (string) ($interaction['application_id'] ?? '');
+
+        Log::info('[DiscordController@handleVoiceInterviewCommand] Inicio', [
+            'discord_id'    => $discordId,
+            'guild_id'      => $guildId,
+            'locale'        => $locale,
+            'token_present' => ! empty($token),
+            'app_id'        => $appId,
+        ]);
+
+        if (! $guildId) {
+            return $this->ephemeralError(__('discord.voice_interview_no_guild'));
+        }
+
+        if (! $discordId) {
+            return $this->ephemeralError(__('discord.voice_error_processing'));
+        }
+
+        app(\App\Services\Voice\VoiceInterviewSessionManager::class)
+            ->pushStartCommand($discordId, $guildId, $locale, $token, $appId);
+
+        // type:5 deferred ephemeral — Discord muestra spinner; el voice-bridge
+        // edita este mensaje vía REST PATCH webhookMessage(APP_ID, token).
+        return response()->json([
+            'type' => 5,
+            'data' => ['flags' => 64],
+        ]);
+    }
+
+    /**
+     * Botón btn_voice_interview_start — mismo flujo que /voice-interview pero
+     * iniciado desde el embed de /registro. Encola la señal en Redis con el
+     * application_id correcto para que el voice-bridge pueda editar la respuesta
+     * diferida del bot que recibió el click (Alpha, Beta o Gamma).
+     */
+    private function handleVoiceInterviewButton(array $interaction): JsonResponse
+    {
+        $discordId = $this->extractDiscordId($interaction);
+        $guildId   = $interaction['guild_id'] ?? null;
+        $rawLocale = $interaction['locale'] ?? ($interaction['member']['user']['locale'] ?? 'es');
+        $locale    = str_starts_with((string) $rawLocale, 'es') ? 'es' : 'en';
+        $token     = $interaction['token'] ?? '';
+        $appId     = (string) ($interaction['application_id'] ?? '');
+
+        Log::info('[DiscordController@handleVoiceInterviewButton] Inicio', [
+            'discord_id'    => $discordId,
+            'guild_id'      => $guildId,
+            'locale'        => $locale,
+            'token_present' => ! empty($token),
+            'app_id'        => $appId,
+        ]);
+
+        if (! $guildId || ! $discordId) {
+            return $this->ephemeralError(__('discord.voice_error_processing'));
+        }
+
+        app(\App\Services\Voice\VoiceInterviewSessionManager::class)
+            ->pushStartCommand($discordId, $guildId, $locale, $token, $appId);
+
+        return response()->json([
+            'type' => 5,
+            'data' => ['flags' => 64],
+        ]);
+    }
+
+    /**
+     * /setup-onboarding (beta) — Persiste el canal de entrevistas de la guild.
+     * El admin ejecuta el comando dentro del canal elegido; Discord envía el
+     * channel_id del canal donde se ejecutó, que se guarda en guilds.onboarding_channel_id.
+     */
+    private function handleSetupOnboardingCommand(array $interaction): JsonResponse
+    {
+        $guildId   = $interaction['guild_id'] ?? null;
+        $channelId = $interaction['channel_id'] ?? null;
+
+        Log::debug('[DiscordController@handleSetupOnboardingCommand] Inicio', [
+            'guild_id'   => $guildId,
+            'channel_id' => $channelId,
+        ]);
+
+        if (! $guildId) {
+            return $this->ephemeralError(__('discord.setup_onboarding_no_guild'));
+        }
+
+        if (! $channelId) {
+            return $this->ephemeralError(__('discord.setup_onboarding_no_channel'));
+        }
+
+        try {
+            \App\Domains\Community\Models\Guild::where('discord_guild_id', $guildId)
+                ->update(['onboarding_channel_id' => $channelId]);
+
+            Log::info('[DiscordController@handleSetupOnboardingCommand] Canal de onboarding guardado', [
+                'guild_id'   => $guildId,
+                'channel_id' => $channelId,
+            ]);
+
+            return response()->json([
+                'type' => 4,
+                'data' => [
+                    'content' => __('discord.setup_onboarding_success', ['channel_id' => $channelId]),
+                    'flags'   => 64,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('[DiscordController@handleSetupOnboardingCommand] Error al guardar canal', [
+                'guild_id'   => $guildId,
+                'channel_id' => $channelId,
+                'message'    => $e->getMessage(),
+                'trace'      => $e->getTraceAsString(),
+            ]);
+
+            return $this->ephemeralError(__('discord.setup_onboarding_error'));
+        }
+    }
+
+    /**
      * /registro — Máquina de estados.
      *
      * En vez de abrir el modal directamente, evalúa el estado del jugador
@@ -200,6 +349,11 @@ class DiscordController extends Controller
             'guild_id'   => $guildId,
             'channel_id' => $channelId,
         ]);
+
+        // ── Detectar bots instalados en la guild ──────────────────────────────
+        $guild     = $guildId ? \App\Domains\Community\Models\Guild::where('discord_guild_id', $guildId)->first() : null;
+        $withBeta  = $guild && $guild->onboarding_channel_id && $guild->hasBotTier(2);
+        $withGamma = $guild && $guild->bots()->where('slug', 'gamma')->where('is_active', true)->exists();
 
         // Resolver arquetipo del canal si es un Vault, sino usar el de la guild
         $archetypeId = null;
@@ -257,7 +411,7 @@ class DiscordController extends Controller
                     'nationality' => $player->nationality,
                 ], now()->addMinutes(30));
 
-                return response()->json(RegistroEmbeds::introCompletarArquetipo());
+                return response()->json(RegistroEmbeds::introCompletarArquetipo($withBeta, $withGamma));
             }
         }
 
@@ -265,7 +419,7 @@ class DiscordController extends Controller
             Log::info('[DiscordController@handleRegistroCommand] Bloqueado: tutorial pendiente', [
                 'player_id' => $player->id,
             ]);
-            return $this->ephemeralError('⚠️ Debes completar el **Vault Tutorial** antes de editar tu ficha.');
+            return $this->ephemeralError(__('discord.tutorial_required'));
         }
 
         // Resuelve el costo de edición para este servidor (con posibles overrides)
@@ -276,7 +430,7 @@ class DiscordController extends Controller
                 'player_id' => $player->id,
                 'error'     => $e->getMessage(),
             ]);
-            return $this->ephemeralError('⚠️ No se pudo determinar el costo de edición. Inténtalo más tarde.');
+            return $this->ephemeralError(__('discord.cost_resolve_error'));
         }
 
         $cost = abs($effect['coin_delta']);
@@ -288,7 +442,7 @@ class DiscordController extends Controller
                 'cost'      => $cost,
             ]);
             return $this->ephemeralError(
-                "💸 Editar tu ficha cuesta **{$cost} monedas**. Tu saldo actual es **{$player->coin}**."
+                __('discord.edit_cost_insufficient', ['cost' => $cost, 'coin' => $player->coin])
             );
         }
 
@@ -297,7 +451,7 @@ class DiscordController extends Controller
             'cost'      => $cost,
         ]);
 
-        return response()->json(RegistroEmbeds::introEdicion($player->coin, $cost));
+        return response()->json(RegistroEmbeds::introEdicion($player->coin, $cost, $withBeta, $withGamma));
     }
 
     /**
@@ -311,16 +465,16 @@ class DiscordController extends Controller
             'type' => 9,
             'data' => [
                 'custom_id'  => 'mudrais_ficha',
-                'title'      => 'Tu Ficha de Identidad MUDRAIS',
+                'title'      => __('discord.ficha_modal_title'),
                 'components' => [
                     [
                         'type'       => 1,
                         'components' => [[
                             'type'        => 4,
                             'custom_id'   => 'profile_text',
-                            'label'       => 'Tu Ficha de Identidad',
+                            'label'       => __('discord.ficha_field_label'),
                             'style'       => 2,
-                            'placeholder' => 'Pega aquí tu ficha rellena...',
+                            'placeholder' => __('discord.ficha_field_placeholder'),
                             'min_length'  => 50,
                             'required'    => true,
                         ]],
@@ -351,13 +505,15 @@ class DiscordController extends Controller
         $pages = $this->mutatorService->buildVaultModalPages($archetypeId);
         $firstPage = $pages[0] ?? [];
         $totalPages = count($pages);
-        $titleSuffix = $totalPages > 1 ? ' (Paso 1 de ' . $totalPages . ')' : '';
+        $title = $totalPages > 1
+            ? __('discord.create_vault_modal_title_paged', ['page' => 1, 'total' => $totalPages])
+            : __('discord.create_vault_modal_title');
 
         $responsePayload = [
             'type' => 9,
             'data' => [
                 'custom_id'  => "create_vault_modal:{$archetypeId}:0",
-                'title'      => 'Crear Nuevo Vault' . $titleSuffix,
+                'title'      => $title,
                 'components' => $firstPage,
             ],
         ];
@@ -378,7 +534,7 @@ class DiscordController extends Controller
         $options = $interaction['data']['options'] ?? [];
         $focused = collect($options)->firstWhere('focused', true);
 
-        if ($command === 'create_vault' && $focused['name'] === 'archetype') {
+        if ($command === 'create-vault' && $focused['name'] === 'archetype') {
             $suggestions = $this->vaultOnboardingService->getArchetypeSuggestions($focused['value'] ?? '');
             return response()->json([
                 'type' => 8,
@@ -466,11 +622,6 @@ class DiscordController extends Controller
             'status' => $this->deferAndDispatch(
                 fn() => ProcessStatusJob::dispatch($discordId, $token)
             ),
-            'buscar-partner' => $discordId
-                ? $this->deferAndDispatch(
-                    fn() => ProcessBuscarJob::dispatch($token, $discordId, $guildId)
-                )
-                : $this->ephemeralError('No se pudo identificar tu usuario.'),
             'search' => $discordId
                 ? $this->deferAndDispatch(
                     fn() => \App\Jobs\Discord\ProcessSearchJob::dispatch(
@@ -483,7 +634,9 @@ class DiscordController extends Controller
                         $this->extractOptionValue($interaction, 'periodo')
                     )
                 )
-                : $this->ephemeralError('No se pudo identificar tu usuario.'),
+                : $this->ephemeralError(__('discord.user_not_found')),
+
+            'interview' => $this->handleInterviewSlashCommand($interaction, $token),
 
             default => $this->handleUnknownCommand($command),
         };
@@ -509,7 +662,7 @@ class DiscordController extends Controller
             Log::warning('[DiscordController@handleModalSubmit] discord_id nulo en modal submit', [
                 'custom_id' => $customId,
             ]);
-            return $this->ephemeralError('No se pudo identificar al jugador.');
+            return $this->ephemeralError(__('discord.user_not_found'));
         }
 
         return match (true) {
@@ -519,6 +672,7 @@ class DiscordController extends Controller
             str_starts_with($customId, 'create_vault_modal:')               => $this->handleVaultOnboardingModal($interaction, $customId, $guildId),
             str_starts_with($customId, 'create_context_modal:')             => $this->handleCreateContextModal($interaction, $customId, $discordId, $guildId, $token),
             $customId === 'actividad_modal'                                  => $this->handleActividadModal($interaction, $discordId, $token),
+            $customId === 'modal_interview_form'                             => $this->handleInterviewFormSubmit($interaction, $discordId, $token),
             default                                                          => $this->handleUnknownModal($customId),
         };
     }
@@ -549,16 +703,16 @@ class DiscordController extends Controller
         if ($nextPageIndex < count($pages)) {
             // Hay más páginas, devolver un mensaje con botón para continuar
             return response()->json([
-                'type' => 4, // ephemeral message with button
+                'type' => 4,
                 'data' => [
-                    'content' => '✅ Parte ' . ($pageIndex + 1) . ' completada. Haz clic abajo para continuar.',
+                    'content' => __('discord.vault_part_completed', ['page' => $pageIndex + 1]),
                     'flags'   => 64,
                     'components' => [[
                         'type' => 1,
                         'components' => [[
                             'type'      => 2,
                             'style'     => 1,
-                            'label'     => 'Continuar (Paso ' . ($nextPageIndex + 1) . ' de ' . count($pages) . ') →',
+                            'label'     => __('discord.vault_continue_btn', ['next' => $nextPageIndex + 1, 'total' => count($pages)]),
                             'custom_id' => "vault_continue:{$archetypeId}:{$nextPageIndex}",
                         ]],
                     ]],
@@ -615,7 +769,7 @@ class DiscordController extends Controller
             'type' => 9,
             'data' => [
                 'custom_id'  => "create_vault_modal:{$archetypeId}:{$pageIndex}",
-                'title'      => 'Crear Nuevo Vault (Paso ' . ($pageIndex + 1) . ' de ' . $totalPages . ')',
+                'title'      => __('discord.create_vault_modal_title_paged', ['page' => $pageIndex + 1, 'total' => $totalPages]),
                 'components' => $pageComponents,
             ],
         ]);
@@ -656,7 +810,7 @@ class DiscordController extends Controller
             ]);
             Cache::put("registro_retry_{$discordId}", $values, now()->addMinutes(10));
             // type:7 — muta el mensaje original en lugar de crear uno nuevo
-            return response()->json(['type' => 7, 'data' => RegistroEmbeds::errorStep1Data('La **edad** debe ser un número entre 13 y 99.')]);
+            return response()->json(['type' => 7, 'data' => RegistroEmbeds::errorStep1Data(__('discord.step2_age_invalid'))]);
         }
 
         // ── Validación OK — persiste en background ────────────────────────────
@@ -723,14 +877,14 @@ class DiscordController extends Controller
             return response()->json([
                 'type' => 4,
                 'data' => [
-                    'content' => "✅ Parte **" . ($pageIndex + 1) . "/{$total}** completada. Continúa para terminar tu ficha.",
+                    'content' => __('discord.step2_part_completed', ['page' => $pageIndex + 1, 'total' => $total]),
                     'flags'   => 64,
                     'components' => [[
                         'type'       => 1,
                         'components' => [[
                             'type'      => 2,
                             'style'     => 1,
-                            'label'     => "Continuar (Paso " . ($nextPageIndex + 1) . " de {$total}) →",
+                            'label'     => __('discord.step2_continue_btn', ['next' => $nextPageIndex + 1, 'total' => $total]),
                             'custom_id' => "btn_registro_step2_continuar:{$archetypeId}:{$nextPageIndex}",
                         ]],
                     ]],
@@ -758,18 +912,17 @@ class DiscordController extends Controller
                 'discord_id' => $discordId,
                 'missing'    => $missingFields,
             ]);
-            $msg = 'Los siguientes campos son obligatorios: ' . implode(', ', $missingFields) . '.';
             return response()->json([
                 'type' => 4,
                 'data' => [
-                    'content' => '⚠️ ' . $msg,
+                    'content' => '⚠️ ' . __('discord.step2_fields_required', ['fields' => implode(', ', $missingFields)]),
                     'flags'   => 64,
                     'components' => [[
                         'type'       => 1,
                         'components' => [[
                             'type'      => 2,
                             'style'     => 1,
-                            'label'     => "Reintentar Paso 2 →",
+                            'label'     => __('discord.step2_retry_btn'),
                             'custom_id' => "btn_registro_step2_continuar:{$archetypeId}:0",
                         ]],
                     ]],
@@ -818,7 +971,7 @@ class DiscordController extends Controller
             'type' => 9,
             'data' => [
                 'custom_id'  => "mudrais_registro_step_2:{$pageIndex}:{$archetypeId}",
-                'title'      => "Ficha de Arquetipo (Paso " . ($pageIndex + 1) . " de {$total})",
+                'title'      => __('discord.ficha_arquetipo_title_paged', ['page' => $pageIndex + 1, 'total' => $total]),
                 'components' => $page,
             ],
         ]);
@@ -869,13 +1022,24 @@ class DiscordController extends Controller
             str_starts_with($customId, 'vault_approve:')        => $this->handleVaultApprove($interaction, $customId, $token),
             str_starts_with($customId, 'vault_reject:')         => $this->handleVaultReject($interaction, $customId, $token),
             str_starts_with($customId, 'vault_continue:')       => $this->handleVaultContinue($interaction, $customId),
-            str_starts_with($customId, 'create_context_open:')  => $this->handleOpenContextModal($interaction, $customId),
-            str_starts_with($customId, 'context_continue:')     => $this->handleContextContinue($interaction, $customId),
+            $customId === 'btn_voice_interview_start'                  => $this->handleVoiceInterviewButton($interaction),
+            $customId === 'btn_interview_start'                        => $this->handleInterviewStart($interaction, $token),
+            $customId === 'btn_iniciar_entrevista_beta'                => $this->handleIniciarEntrevistaBeta($interaction),
+            $customId === 'btn_interview_accept'                       => $this->handleInterviewAccept($interaction, $token),
+            $customId === 'btn_interview_retry'                        => $this->handleInterviewRetry($interaction, $token),
+            $customId === 'btn_interview_cancel'                       => $this->handleInterviewCancel($interaction),
+            $customId === 'btn_interview_form'                         => $this->handleInterviewFormOpen($interaction),
+            str_starts_with($customId, 'create_context_open:')       => $this->handleOpenContextModal($interaction, $customId),
+            str_starts_with($customId, 'create_context_quick:')      => $this->handleOpenContextModalDirect($interaction, $customId),
+            str_starts_with($customId, 'create_context_interview:')  => $this->handleOpenContextInterviewStart($interaction, $customId),
+            $customId === 'actividad_modal_open'                      => $this->handleActividadModalOpen($interaction, $discordId, $token),
+            $customId === 'actividad_interview_start'                 => $this->handleActividadInterviewStart($interaction, $discordId, $token),
+            str_starts_with($customId, 'context_continue:')          => $this->handleContextContinue($interaction, $customId),
             str_starts_with($customId, 'context_config:')       => $this->handleContextConfig($interaction, $customId),
             str_starts_with($customId, 'activity_view:') => (function () use ($token, $customId) {
                 $activityId = explode(':', $customId)[1] ?? null;
                 if (!$activityId) {
-                    return response()->json(['type' => 4, 'data' => ['content' => 'ID inválido.', 'flags' => 64]]);
+                    return response()->json(['type' => 4, 'data' => ['content' => __('discord.invalid_id'), 'flags' => 64]]);
                 }
                 \App\Jobs\Discord\ProcessViewActivityJob::dispatch($token, $activityId);
                 return response()->json(['type' => 5, 'data' => ['flags' => 64]]);
@@ -883,7 +1047,7 @@ class DiscordController extends Controller
             str_starts_with($customId, 'avatar_view:') => (function () use ($token, $customId) {
                 $avatarId = explode(':', $customId)[1] ?? null;
                 if (!$avatarId) {
-                    return response()->json(['type' => 4, 'data' => ['content' => 'ID inválido.', 'flags' => 64]]);
+                    return response()->json(['type' => 4, 'data' => ['content' => __('discord.invalid_id'), 'flags' => 64]]);
                 }
                 \App\Jobs\Discord\ProcessViewAvatarJob::dispatch($token, $avatarId);
                 return response()->json(['type' => 5, 'data' => ['flags' => 64]]);
@@ -891,7 +1055,7 @@ class DiscordController extends Controller
             str_starts_with($customId, 'player_profile_view:') => (function () use ($token, $customId) {
                 $profileId = explode(':', $customId)[1] ?? null;
                 if (! $profileId) {
-                    return response()->json(['type' => 4, 'data' => ['content' => 'ID inválido.', 'flags' => 64]]);
+                    return response()->json(['type' => 4, 'data' => ['content' => __('discord.invalid_id'), 'flags' => 64]]);
                 }
                 \App\Jobs\Discord\ProcessViewPlayerProfileJob::dispatch($token, $profileId);
                 return response()->json(['type' => 5, 'data' => ['flags' => 64]]);
@@ -1099,7 +1263,9 @@ class DiscordController extends Controller
         $pages     = $this->mutatorService->buildStep2ModalPages($archetypeId, $prefill);
         $firstPage = $pages[0] ?? [];
         $total     = count($pages);
-        $suffix    = $total > 1 ? ' (Paso 1 de ' . $total . ')' : '';
+        $title = $total > 1
+            ? __('discord.ficha_arquetipo_title_paged', ['page' => 1, 'total' => $total])
+            : __('discord.ficha_arquetipo_title');
 
         Log::debug('[DiscordController@handleAbrirModal2] Páginas calculadas', [
             'discord_id' => $discordId,
@@ -1110,7 +1276,7 @@ class DiscordController extends Controller
             'type' => 9,
             'data' => [
                 'custom_id'  => "mudrais_registro_step_2:0:{$archetypeId}",
-                'title'      => 'Ficha de Arquetipo' . $suffix,
+                'title'      => $title,
                 'components' => $firstPage,
             ],
         ]);
@@ -1147,7 +1313,7 @@ class DiscordController extends Controller
             Log::warning('[DiscordController@handleCreateContextCommand] Canal no corresponde a un Vault registrado', [
                 'channel_id' => $channelId,
             ]);
-            return $this->ephemeralError('⚠️ Este canal no pertenece a ningún Vault activo. Usa el comando desde el canal del Vault.');
+            return $this->ephemeralError(__('discord.create_context_no_vault'));
         }
 
         $vaultArchetypeId = $vault->primaryArchetype()?->id;
@@ -1159,7 +1325,7 @@ class DiscordController extends Controller
             Log::warning('[DiscordController@handleCreateContextCommand] ArchetypeEntityType no encontrado', [
                 'entity_type_id' => $entityTypeId,
             ]);
-            return $this->ephemeralError('⚠️ Tipo inválido. Selecciona una opción del autocomplete.');
+            return $this->ephemeralError(__('discord.create_context_invalid_type'));
         }
 
         if ($entityType->archetype_id !== $vaultArchetypeId) {
@@ -1167,7 +1333,7 @@ class DiscordController extends Controller
                 'entity_type_archetype' => $entityType->archetype_id,
                 'vault_archetype'       => $vaultArchetypeId,
             ]);
-            return $this->ephemeralError('⚠️ El tipo seleccionado no corresponde al arquetipo de este Vault.');
+            return $this->ephemeralError(__('discord.create_context_type_mismatch'));
         }
 
         // ── Listar todos los elementos del tipo en este vault ─────────────────
@@ -1183,10 +1349,10 @@ class DiscordController extends Controller
         ]);
 
         if ($items->isEmpty()) {
-            $description = "No hay **{$entityType->type_label}** en este Vault todavía.\n¡Sé el primero en crear uno!";
+            $description = __('discord.create_context_empty_list', ['type' => $entityType->type_label]);
         } else {
             $lines       = $items->map(fn ($a) => "• {$a->name}")->implode("\n");
-            $description = "**{$items->count()}** elemento(s) en este Vault:\n\n{$lines}";
+            $description = __('discord.create_context_list', ['count' => $items->count(), 'lines' => $lines]);
         }
 
         return response()->json([
@@ -1204,7 +1370,7 @@ class DiscordController extends Controller
                     'components' => [[
                         'type'      => 2,
                         'style'     => 1,
-                        'label'     => "Crear {$entityType->type_label} →",
+                        'label'     => __('discord.create_context_btn', ['type' => $entityType->type_label]),
                         'custom_id' => "create_context_open:{$entityTypeId}:{$vault->id}",
                     ]],
                 ]],
@@ -1216,6 +1382,9 @@ class DiscordController extends Controller
      * Botón "Crear [tipo]" — abre la primera página del modal (type:9).
      * custom_id format: create_context_open:<entityTypeId>:<vaultId>
      */
+    /**
+     * Botón create_context_open:<entityTypeId>:<vaultId> — presenta la elección modal vs entrevista.
+     */
     private function handleOpenContextModal(array $interaction, string $customId): JsonResponse
     {
         $parts        = explode(':', $customId);
@@ -1223,7 +1392,7 @@ class DiscordController extends Controller
         $vaultId      = $parts[2] ?? null;
         $discordId    = $this->extractDiscordId($interaction);
 
-        Log::info('[DiscordController@handleOpenContextModal] Abriendo modal de contexto', [
+        Log::info('[DiscordController@handleOpenContextModal] Mostrando opciones de creación de avatar', [
             'entity_type_id' => $entityTypeId,
             'vault_id'       => $vaultId,
             'discord_id'     => $discordId,
@@ -1233,20 +1402,98 @@ class DiscordController extends Controller
             Cache::forget("context_onboarding_{$discordId}");
         }
 
+        return response()->json([
+            'type' => 4,
+            'data' => [
+                'flags'  => 64,
+                'embeds' => [[
+                    'title'       => __('discord.create_context_choice_title'),
+                    'description' => __('discord.create_context_choice_desc'),
+                    'color'       => 3447003,
+                    'footer'      => ['text' => __('discord.footer')],
+                ]],
+                'components' => [[
+                    'type'       => 1,
+                    'components' => [
+                        [
+                            'type'      => 2,
+                            'style'     => 1,
+                            'label'     => __('discord.create_context_choice_btn_modal'),
+                            'custom_id' => "create_context_quick:{$entityTypeId}:{$vaultId}",
+                        ],
+                        [
+                            'type'      => 2,
+                            'style'     => 2,
+                            'label'     => __('discord.interview_btn_label'),
+                            'custom_id' => "create_context_interview:{$entityTypeId}:{$vaultId}",
+                        ],
+                    ],
+                ]],
+            ],
+        ]);
+    }
+
+    /**
+     * Botón create_context_quick:<entityTypeId>:<vaultId> — abre el modal directo (opción rápida).
+     */
+    private function handleOpenContextModalDirect(array $interaction, string $customId): JsonResponse
+    {
+        $parts        = explode(':', $customId);
+        $entityTypeId = $parts[1] ?? '';
+        $vaultId      = $parts[2] ?? null;
+
+        Log::info('[DiscordController@handleOpenContextModalDirect] Abriendo modal de contexto', [
+            'entity_type_id' => $entityTypeId,
+            'vault_id'       => $vaultId,
+        ]);
+
         $pages     = $this->mutatorService->buildContextModalPages($entityTypeId);
         $firstPage = $pages[0] ?? [];
         $total     = count($pages);
-        $suffix    = $total > 1 ? ' (Paso 1 de ' . $total . ')' : '';
+        $title = $total > 1
+            ? __('discord.create_context_title_paged', ['page' => 1, 'total' => $total])
+            : __('discord.create_context_title');
 
-        // vault_id viaja en el custom_id para que el submit lo tenga disponible sin queries
         return response()->json([
             'type' => 9,
             'data' => [
                 'custom_id'  => "create_context_modal:{$entityTypeId}:{$vaultId}:0",
-                'title'      => 'Nuevo Contexto' . $suffix,
+                'title'      => $title,
                 'components' => $firstPage,
             ],
         ]);
+    }
+
+    /**
+     * Botón create_context_interview:<entityTypeId>:<vaultId> — inicia la entrevista de avatar.
+     */
+    private function handleOpenContextInterviewStart(array $interaction, string $customId): JsonResponse
+    {
+        $parts        = explode(':', $customId);
+        $entityTypeId = $parts[1] ?? '';
+        $vaultId      = $parts[2] ?? null;
+        $discordId    = $this->extractDiscordId($interaction);
+        $token        = $interaction['token'] ?? '';
+
+        Log::info('[DiscordController@handleOpenContextInterviewStart] Iniciando entrevista de avatar', [
+            'entity_type_id' => $entityTypeId,
+            'vault_id'       => $vaultId,
+            'discord_id'     => $discordId,
+        ]);
+
+        $entityType  = ArchetypeEntityType::find($entityTypeId);
+        $archetypeId = $entityType?->archetype_id ? (string) $entityType->archetype_id : null;
+
+        return $this->handleInterviewStart(
+            $interaction,
+            $token,
+            'avatar_context',
+            [
+                'entity_type_id' => $entityTypeId,
+                'vault_id'       => $vaultId,
+            ],
+            $archetypeId,
+        );
     }
 
     /**
@@ -1276,7 +1523,7 @@ class DiscordController extends Controller
             'type' => 9,
             'data' => [
                 'custom_id'  => "create_context_modal:{$entityTypeId}:{$vaultId}:{$pageIndex}",
-                'title'      => "Nuevo Contexto (Paso " . ($pageIndex + 1) . " de {$total})",
+                'title'      => __('discord.create_context_title_paged', ['page' => $pageIndex + 1, 'total' => $total]),
                 'components' => $pageComponents,
             ],
         ]);
@@ -1291,7 +1538,7 @@ class DiscordController extends Controller
         $avatar   = Avatar::find($avatarId);
 
         if (! $avatar) {
-            return $this->ephemeralError('No se encontró el personaje.');
+            return $this->ephemeralError(__('discord.context_no_character'));
         }
 
         Log::info('[DiscordController@handleContextConfig] Abriendo config para avatar', [
@@ -1305,7 +1552,7 @@ class DiscordController extends Controller
         $pages = $this->mutatorService->buildStep2ModalPages($archetypeId, $avatar->content_raw);
 
         if (empty($pages)) {
-            return $this->ephemeralError('Este tipo de personaje no tiene atributos configurables.');
+            return $this->ephemeralError(__('discord.context_no_attributes'));
         }
 
         return response()->json([
@@ -1363,13 +1610,13 @@ class DiscordController extends Controller
                 'type' => 4,
                 'data' => [
                     'flags'   => 64,
-                    'content' => '✅ Parte ' . ($pageIndex + 1) . ' completada. Haz clic abajo para continuar.',
+                    'content' => __('discord.context_part_completed', ['page' => $pageIndex + 1]),
                     'components' => [[
                         'type'       => 1,
                         'components' => [[
                             'type'      => 2,
                             'style'     => 1,
-                            'label'     => 'Continuar (Paso ' . ($nextPageIndex + 1) . ' de ' . count($pages) . ') →',
+                            'label'     => __('discord.context_continue_btn', ['next' => $nextPageIndex + 1, 'total' => count($pages)]),
                             'custom_id' => "context_continue:{$entityTypeId}:{$vaultId}:{$nextPageIndex}",
                         ]],
                     ]],
@@ -1427,6 +1674,625 @@ class DiscordController extends Controller
         return response()->json([
             'type' => 7,
             'data' => \App\Infrastructure\Discord\Embeds\VaultApprovalEmbeds::rejected(),
+        ]);
+    }
+
+    // =========================================================================
+    // Dynamic Interviewer Agent (/interview)
+    // =========================================================================
+
+    /**
+     * Slash command /interview.
+     *
+     * Sin la opción "respuesta": inicia o reanuda la entrevista.
+     * Con la opción "respuesta": procesa la respuesta del usuario al turno actual.
+     */
+    private function handleInterviewSlashCommand(array $interaction, string $token): JsonResponse
+    {
+        $discordId  = $this->extractDiscordId($interaction);
+        $username   = $this->extractUsername($interaction) ?? 'jugador';
+        $guildId    = $interaction['guild_id'] ?? null;
+        $answer     = $this->extractOptionValue($interaction, 'respuesta');
+        $reiniciar  = (bool) $this->extractOptionValue($interaction, 'reiniciar');
+
+        Log::info('[DiscordController@handleInterviewSlashCommand] Invocado', [
+            'discord_id'  => $discordId,
+            'has_answer'  => $answer !== null,
+            'reiniciar'   => $reiniciar,
+            'guild_id'    => $guildId,
+        ]);
+
+        if (! $discordId) {
+            return $this->ephemeralError(__('discord.user_not_found'));
+        }
+
+        $player = \App\Models\Player::where('discord_id', $discordId)->first();
+        if (! $player) {
+            return $this->ephemeralError(__('discord.interview_no_player'));
+        }
+
+        // ── Reinicio forzado: limpia el estado y comienza desde cero ─────────
+        if ($reiniciar) {
+            Log::info('[DiscordController@handleInterviewSlashCommand] Force-reinicio solicitado', [
+                'discord_id' => $discordId,
+            ]);
+            \Illuminate\Support\Facades\Cache::forget("interview_state_{$discordId}");
+            return $this->handleInterviewStart($interaction, $token);
+        }
+
+        // ── Con respuesta: turno N ────────────────────────────────────────────
+        if ($answer !== null) {
+            $state = \Illuminate\Support\Facades\Cache::get("interview_state_{$discordId}");
+
+            if (! $state) {
+                return $this->ephemeralError(__('discord.interview_expired'));
+            }
+
+            if (($state['status'] ?? '') === 'awaiting_confirmation') {
+                return $this->ephemeralError(__('discord.interview_already_confirmed'));
+            }
+
+            if (($state['status'] ?? '') === 'awaiting_form') {
+                return $this->ephemeralError(__('discord.interview_awaiting_form'));
+            }
+
+            $turn = $state['turn'] ?? 1;
+
+            Log::debug('[DiscordController@handleInterviewSlashCommand] Procesando respuesta', [
+                'discord_id' => $discordId,
+                'turn'       => $turn,
+            ]);
+
+            \App\Jobs\Discord\ProcessInterviewTurnJob::dispatch(
+                $discordId, $token, $answer, $turn, $username
+            );
+
+            return response()->json(['type' => 5, 'data' => ['flags' => 64]]);
+        }
+
+        // ── Sin respuesta: iniciar / reanudar ─────────────────────────────────
+        $state = \Illuminate\Support\Facades\Cache::get("interview_state_{$discordId}");
+
+        if ($state && ($state['status'] ?? '') === 'awaiting_confirmation') {
+            return $this->ephemeralError(__('discord.interview_already_confirmed'));
+        }
+
+        if ($state && ($state['status'] ?? '') === 'awaiting_form') {
+            return $this->ephemeralError(__('discord.interview_awaiting_form'));
+        }
+
+        if ($state && ($state['status'] ?? '') === 'in_progress') {
+            // Reanuda: reenvía la última pregunta del historial
+            $history      = $state['conversation_history'] ?? [];
+            $lastQuestion = null;
+            foreach (array_reverse($history) as $msg) {
+                if ($msg['role'] === 'assistant') {
+                    $lastQuestion = $msg['content'];
+                    break;
+                }
+            }
+            Log::info('[DiscordController@handleInterviewSlashCommand] Reanudando sesión', [
+                'discord_id' => $discordId,
+            ]);
+
+            \App\Jobs\Discord\ProcessInterviewTurnJob::dispatch(
+                $discordId, $token, '', 0, $username
+            );
+
+            return response()->json(['type' => 5, 'data' => ['flags' => 64]]);
+        }
+
+        // Nueva sesión
+        return $this->handleInterviewStart($interaction, $token);
+    }
+
+    /**
+     * Botón btn_interview_start — inicia una nueva sesión de entrevista.
+     */
+    /**
+     * Inicia una sesión de entrevista conversacional.
+     *
+     * @param string  $context       'registration' | 'avatar_context' | 'activities_vibe'
+     * @param array   $extraState    Campos adicionales que se mezclan en el estado de cache
+     *                               (entity_type_id, vault_id, activity_type_id, ctx1_id, ctx2_id…)
+     * @param string|null $forceArchetypeId Omite la resolución automática de arquetipo cuando ya se conoce
+     */
+    /**
+     * Botón "🎙️ Entrevista Narrativa" (beta).
+     * Despacha CreateOnboardingThreadJob que crea el hilo privado con el bot beta.
+     */
+    private function handleIniciarEntrevistaBeta(array $interaction): JsonResponse
+    {
+        $discordId = $this->extractDiscordId($interaction);
+        $username  = $this->extractUsername($interaction) ?? 'jugador';
+        $guildId   = $interaction['guild_id'] ?? null;
+
+        Log::info('[DiscordController@handleIniciarEntrevistaBeta] Inicio', [
+            'discord_id' => $discordId,
+            'guild_id'   => $guildId,
+        ]);
+
+        if (! $discordId || ! $guildId) {
+            return $this->ephemeralError(__('discord.setup_onboarding_no_guild'));
+        }
+
+        $guild = \App\Domains\Community\Models\Guild::where('discord_guild_id', $guildId)->first();
+
+        if (! $guild || ! $guild->onboarding_channel_id) {
+            Log::warning('[DiscordController@handleIniciarEntrevistaBeta] Guild sin onboarding_channel_id', [
+                'guild_id' => $guildId,
+            ]);
+            return $this->ephemeralError(__('discord.setup_onboarding_no_channel'));
+        }
+
+        // Resolver nombre del vault y arquetipo desde el canal de interacción
+        $channelId   = $interaction['channel_id'] ?? null;
+        $vaultName   = 'MUDRAIS';
+        $archetypeId = null;
+        if ($channelId) {
+            $vault = \App\Domains\Narrative\Models\Vault::where('discord_channel_id', $channelId)->first();
+            if ($vault) {
+                $vaultName   = $vault->name;
+                $archetypeId = $vault->primaryArchetype()?->id;
+            }
+        }
+        if (! $archetypeId) {
+            $archetypeId = $this->resolveAndCacheArchetype($discordId, $guildId);
+        }
+
+        \App\Jobs\Discord\CreateOnboardingThreadJob::dispatch(
+            discordGuildId:   $guildId,
+            discordUserId:    $discordId,
+            username:         $username,
+            vaultName:        $vaultName,
+            interactionToken: $interaction['token'] ?? '',
+            archetypeId:      $archetypeId,
+        );
+
+        Log::info('[DiscordController@handleIniciarEntrevistaBeta] CreateOnboardingThreadJob despachado', [
+            'discord_id' => $discordId,
+            'guild_id'   => $guildId,
+            'vault'      => $vaultName,
+        ]);
+
+        return response()->json([
+            'type' => 4,
+            'data' => [
+                'content' => __('discord.interview_beta_thread_creating'),
+                'flags'   => 64,
+            ],
+        ]);
+    }
+
+    private function handleInterviewStart(
+        array $interaction,
+        string $token,
+        string $context = 'registration',
+        array $extraState = [],
+        ?string $forceArchetypeId = null,
+    ): JsonResponse {
+        $discordId = $this->extractDiscordId($interaction);
+        $username  = $this->extractUsername($interaction) ?? 'jugador';
+        $guildId   = $interaction['guild_id'] ?? null;
+        $channelId = $interaction['channel_id'] ?? null;
+        $locale    = \Illuminate\Support\Facades\App::getLocale();
+
+        Log::info('[DiscordController@handleInterviewStart] Iniciando entrevista', [
+            'discord_id' => $discordId,
+            'guild_id'   => $guildId,
+            'context'    => $context,
+            'locale'     => $locale,
+        ]);
+
+        if (! $discordId) {
+            return $this->ephemeralError(__('discord.user_not_found'));
+        }
+
+        $player = \App\Models\Player::where('discord_id', $discordId)->first();
+        if (! $player) {
+            return $this->ephemeralError(__('discord.interview_no_player'));
+        }
+
+        // Resolver arquetipo: forzado > canal > guild
+        $archetypeId = $forceArchetypeId;
+        if (! $archetypeId) {
+            if ($channelId) {
+                $vault = \App\Domains\Narrative\Models\Vault::where('discord_channel_id', $channelId)->first();
+                if ($vault) {
+                    $archetypeId = $vault->primaryArchetype()?->id;
+                }
+            }
+            if (! $archetypeId) {
+                $archetypeId = $this->resolveAndCacheArchetype($discordId, $guildId);
+            }
+        }
+
+        // Edición solo aplica al contexto de registro
+        $isEdit = false;
+        if ($context === 'registration' && $archetypeId) {
+            $isEdit = \App\Domains\Matchmaking\Models\PlayerArchetypeProfile::where('player_id', $player->id)
+                ->where('archetype_id', $archetypeId)
+                ->exists();
+        }
+
+        // Calcular campos desde mutadores separando los de tipo AI de los de formulario
+        $agent  = app(\App\Infrastructure\Ai\Agents\InterviewerAgent::class);
+        $fields = $agent->resolveFields($archetypeId, $context);
+
+        $aiFieldTypes  = \App\Infrastructure\Ai\Agents\InterviewerAgent::AI_FIELD_TYPES;
+        $aiFields      = array_values(array_filter($fields, fn($f) => in_array($f['field_type'] ?? 'text', $aiFieldTypes, true)));
+        $formFields    = array_values(array_filter($fields, fn($f) => ! in_array($f['field_type'] ?? 'text', $aiFieldTypes, true)));
+
+        $aiFieldKeys   = array_column($aiFields, 'field_key');
+        $formFieldKeys = array_column($formFields, 'field_key');
+
+        $requiredKeys = array_values(array_column(
+            array_filter($aiFields, fn($f) => $f['is_required']),
+            'field_key'
+        ));
+        $optionalKeys = array_values(array_column(
+            array_filter($aiFields, fn($f) => ! $f['is_required']),
+            'field_key'
+        ));
+
+        Log::debug('[DiscordController@handleInterviewStart] Campos separados por tipo', [
+            'discord_id'       => $discordId,
+            'context'          => $context,
+            'ai_field_count'   => count($aiFieldKeys),
+            'form_field_count' => count($formFieldKeys),
+        ]);
+
+        // Siempre iniciar en modo AI conversacional (modal de campos duros va al final, no al inicio)
+        $state = array_merge([
+            'archetype_id'          => $archetypeId,
+            'interview_context'     => $context,
+            'guild_id'              => $guildId,
+            'username'              => $username,
+            'locale'                => $locale,
+            'turn'                  => 0,
+            'status'                => 'in_progress',
+            'is_edit'               => $isEdit,
+            'conversation_history'  => [],
+            'extracted_fields'      => [],
+            'ai_field_keys'         => $aiFieldKeys,
+            'form_field_keys'       => $formFieldKeys,
+            'required_field_keys'   => $requiredKeys,
+            'optional_field_keys'   => $optionalKeys,
+            'missing_required_keys' => $requiredKeys,
+        ], $extraState);
+
+        \Illuminate\Support\Facades\Cache::put(
+            "interview_state_{$discordId}",
+            $state,
+            now()->addMinutes(30)
+        );
+
+        Log::debug('[DiscordController@handleInterviewStart] Estado inicializado', [
+            'discord_id'       => $discordId,
+            'archetype_id'     => $archetypeId,
+            'interview_context'=> $context,
+            'required_count'   => count($requiredKeys),
+            'form_field_count' => count($formFieldKeys),
+        ]);
+
+        // Detectar Bot Beta: si está instalado en el guild, crear hilo privado
+        $guild   = $guildId
+            ? \App\Domains\Community\Models\Guild::where('discord_guild_id', $guildId)->first()
+            : null;
+        $hasBeta = $guild?->hasBotTier(2) ?? false;
+
+        if ($hasBeta && $channelId) {
+            $thread = \App\Services\Discord\DiscordApiService::forGuild($guildId)
+                ->createThread($channelId, "entrevista-{$username}", type: 12 /* PRIVATE_THREAD */);
+
+            if ($thread && isset($thread['id'])) {
+                $threadId = $thread['id'];
+
+                \Illuminate\Support\Facades\Cache::put(
+                    "thread_session_{$threadId}",
+                    ['type' => 'interview', 'discord_id' => $discordId],
+                    now()->addHours(2)
+                );
+
+                Log::info('[DiscordController@handleInterviewStart] Hilo privado creado para Bot Beta', [
+                    'discord_id' => $discordId,
+                    'thread_id'  => $threadId,
+                    'guild_id'   => $guildId,
+                ]);
+
+                \App\Jobs\Discord\ProcessInterviewTurnJob::dispatch(
+                    discordId:  $discordId,
+                    token:      null,
+                    userAnswer: '',
+                    turn:       0,
+                    username:   $username,
+                    guildId:    $guildId,
+                    threadId:   $threadId,
+                );
+
+                return response()->json([
+                    'type' => 4,
+                    'data' => ['content' => __('discord.interview_thread_created'), 'flags' => 64],
+                ]);
+            }
+
+            Log::warning('[DiscordController@handleInterviewStart] No se pudo crear el hilo — fallback a modo Alpha', [
+                'discord_id' => $discordId,
+                'guild_id'   => $guildId,
+            ]);
+        }
+
+        // Flujo Alpha (sin Bot Beta): follow-up webhook
+        \App\Jobs\Discord\ProcessInterviewTurnJob::dispatch(
+            discordId:  $discordId,
+            token:      $token,
+            userAnswer: '',
+            turn:       0,
+            username:   $username,
+            guildId:    $guildId,
+        );
+
+        return response()->json(['type' => 5, 'data' => ['flags' => 64]]);
+    }
+
+    /**
+     * Botón btn_interview_accept — confirma y guarda el perfil extraído.
+     */
+    private function handleInterviewAccept(array $interaction, string $token): JsonResponse
+    {
+        $discordId = $this->extractDiscordId($interaction);
+        $guildId   = $interaction['guild_id'] ?? null;
+        $username  = $this->extractUsername($interaction);
+
+        Log::info('[DiscordController@handleInterviewAccept] Aceptando perfil', [
+            'discord_id' => $discordId,
+        ]);
+
+        \App\Jobs\Discord\ProcessInterviewAcceptJob::dispatch(
+            $discordId, $token, $guildId, $username
+        );
+
+        return response()->json(['type' => 5, 'data' => ['flags' => 64]]);
+    }
+
+    /**
+     * Botón btn_interview_retry — resetea la entrevista y la reinicia.
+     */
+    private function handleInterviewRetry(array $interaction, string $token): JsonResponse
+    {
+        $discordId = $this->extractDiscordId($interaction);
+        $username  = $this->extractUsername($interaction) ?? 'jugador';
+
+        Log::info('[DiscordController@handleInterviewRetry] Reintentando entrevista', [
+            'discord_id' => $discordId,
+        ]);
+
+        $state = \Illuminate\Support\Facades\Cache::get("interview_state_{$discordId}");
+
+        if (! $state) {
+            return $this->ephemeralError(__('discord.interview_expired'));
+        }
+
+        $formFieldKeys = $state['form_field_keys'] ?? [];
+        $archetypeId   = $state['archetype_id'] ?? null;
+
+        // Resetear manteniendo configuración del arquetipo
+        $initialStatus = ! empty($formFieldKeys) ? 'awaiting_form' : 'in_progress';
+
+        $resetState = array_merge($state, [
+            'turn'                  => 0,
+            'status'                => $initialStatus,
+            'conversation_history'  => [],
+            'extracted_fields'      => [],
+            'missing_required_keys' => $state['required_field_keys'] ?? [],
+        ]);
+
+        \Illuminate\Support\Facades\Cache::put(
+            "interview_state_{$discordId}",
+            $resetState,
+            now()->addMinutes(30)
+        );
+
+        Log::debug('[DiscordController@handleInterviewRetry] Estado reseteado', [
+            'discord_id' => $discordId,
+            'status'     => $initialStatus,
+        ]);
+
+        // Formulario primero si el arquetipo tiene campos estructurados
+        if (! empty($formFieldKeys) && $archetypeId) {
+            $interviewContext = $resetState['interview_context'] ?? 'registration';
+            $components = $this->mutatorService->buildInterviewFormModal($archetypeId, $formFieldKeys, [], $interviewContext);
+
+            if (! empty($components)) {
+                return response()->json([
+                    'type' => 9,
+                    'data' => [
+                        'custom_id'  => 'modal_interview_form',
+                        'title'      => mb_substr(__('discord.interview_form_title'), 0, 45),
+                        'components' => $components,
+                    ],
+                ]);
+            }
+        }
+
+        \App\Jobs\Discord\ProcessInterviewTurnJob::dispatch(
+            $discordId, $token, '', 0, $username
+        );
+
+        return response()->json(['type' => 5, 'data' => ['flags' => 64]]);
+    }
+
+    /**
+     * Botón btn_interview_cancel — cancela la entrevista y limpia el cache.
+     */
+    private function handleInterviewCancel(array $interaction): JsonResponse
+    {
+        $discordId = $this->extractDiscordId($interaction);
+
+        Log::info('[DiscordController@handleInterviewCancel] Cancelando entrevista', [
+            'discord_id' => $discordId,
+        ]);
+
+        \Illuminate\Support\Facades\Cache::forget("interview_state_{$discordId}");
+
+        return response()->json([
+            'type' => 4,
+            'data' => [
+                'content' => __('discord.interview_cancelled'),
+                'flags'   => 64,
+            ],
+        ]);
+    }
+
+    /**
+     * Botón btn_interview_form — responde type:9 (MODAL) con los campos estructurados.
+     *
+     * El modal es la ÚNICA respuesta que no puede ser follow-up; debe ser la respuesta
+     * directa a la interacción del botón (síncrono, dentro de los 3 s de Discord).
+     */
+    private function handleInterviewFormOpen(array $interaction): JsonResponse
+    {
+        $discordId = $this->extractDiscordId($interaction);
+
+        Log::info('[DiscordController@handleInterviewFormOpen] Abriendo modal de campos estructurados', [
+            'discord_id' => $discordId,
+        ]);
+
+        $state = Cache::get("interview_state_{$discordId}");
+
+        if (! $state || ($state['status'] ?? '') !== 'awaiting_form') {
+            Log::warning('[DiscordController@handleInterviewFormOpen] Estado inválido para abrir formulario', [
+                'discord_id' => $discordId,
+                'status'     => $state['status'] ?? 'null',
+            ]);
+            return $this->ephemeralError(__('discord.interview_expired'));
+        }
+
+        $archetypeId   = $state['archetype_id'] ?? null;
+        $formFieldKeys = $state['form_field_keys'] ?? [];
+
+        Log::debug('[DiscordController@handleInterviewFormOpen] Construyendo componentes del modal', [
+            'discord_id'       => $discordId,
+            'archetype_id'     => $archetypeId,
+            'form_field_count' => count($formFieldKeys),
+        ]);
+
+        if (! $archetypeId || empty($formFieldKeys)) {
+            Log::warning('[DiscordController@handleInterviewFormOpen] Sin arquetipo o sin campos form', [
+                'discord_id'    => $discordId,
+                'archetype_id'  => $archetypeId,
+                'form_keys'     => $formFieldKeys,
+            ]);
+            return $this->ephemeralError(__('discord.interview_expired'));
+        }
+
+        $interviewContext = $state['interview_context'] ?? 'registration';
+        $components = $this->mutatorService->buildInterviewFormModal(
+            $archetypeId,
+            $formFieldKeys,
+            $state['extracted_fields'] ?? [],
+            $interviewContext,
+        );
+
+        if (empty($components)) {
+            Log::warning('[DiscordController@handleInterviewFormOpen] Sin componentes generados', [
+                'discord_id'   => $discordId,
+                'archetype_id' => $archetypeId,
+            ]);
+            return $this->ephemeralError(__('discord.interview_expired'));
+        }
+
+        Log::info('[DiscordController@handleInterviewFormOpen] Modal construido correctamente', [
+            'discord_id'       => $discordId,
+            'component_count'  => count($components),
+        ]);
+
+        return response()->json([
+            'type' => 9,
+            'data' => [
+                'custom_id'  => 'modal_interview_form',
+                'title'      => mb_substr(__('discord.interview_form_title'), 0, 45),
+                'components' => $components,
+            ],
+        ]);
+    }
+
+    /**
+     * Modal modal_interview_form — recibe los campos estructurados, los fusiona con los
+     * campos extraídos por IA y despacha la confirmación final.
+     */
+    private function handleInterviewFormSubmit(array $interaction, string $discordId, string $token): JsonResponse
+    {
+        Log::info('[DiscordController@handleInterviewFormSubmit] Campos estructurados recibidos', [
+            'discord_id' => $discordId,
+        ]);
+
+        $values = $this->extractModalValues($interaction['data']['components'] ?? []);
+        $state  = Cache::get("interview_state_{$discordId}");
+
+        if (! $state || ($state['status'] ?? '') !== 'awaiting_form') {
+            Log::warning('[DiscordController@handleInterviewFormSubmit] Estado inválido al recibir form', [
+                'discord_id' => $discordId,
+                'status'     => $state['status'] ?? 'null',
+            ]);
+            return $this->ephemeralError(__('discord.interview_expired'));
+        }
+
+        // Filtrar valores nulos/vacíos antes de fusionar
+        $cleanValues = array_filter(
+            $values,
+            fn($v) => $v !== null && trim((string) $v) !== ''
+        );
+
+        Log::debug('[DiscordController@handleInterviewFormSubmit] Campos recibidos del formulario', [
+            'discord_id'   => $discordId,
+            'field_keys'   => array_keys($cleanValues),
+            'field_count'  => count($cleanValues),
+        ]);
+
+        $allExtracted = array_merge($state['extracted_fields'] ?? [], $cleanValues);
+
+        $updatedState = array_merge($state, [
+            'extracted_fields' => $allExtracted,
+            'status'           => 'completed',
+        ]);
+
+        Cache::put("interview_state_{$discordId}", $updatedState, now()->addMinutes(30));
+
+        Log::info('[DiscordController@handleInterviewFormSubmit] Campos estructurados guardados — despachando registro directo', [
+            'discord_id'   => $discordId,
+            'form_fields'  => array_keys($cleanValues),
+            'total_fields' => count($allExtracted),
+        ]);
+
+        // Preparar cachés que ProcessRegistroStep2Job necesita
+        $archetypeId = $updatedState['archetype_id'] ?? null;
+        $player      = \App\Domains\Community\Models\Player::where('discord_id', $discordId)->first();
+
+        Cache::put("registro_step1_{$discordId}", [
+            'is_edit'     => $updatedState['is_edit'] ?? false,
+            'nationality' => $player?->nationality,
+        ], now()->addMinutes(30));
+
+        if ($archetypeId) {
+            Cache::put("registro_archetype_{$discordId}", $archetypeId, now()->addMinutes(30));
+        }
+
+        \App\Jobs\Discord\ProcessRegistroStep2Job::dispatch(
+            discordId: $discordId,
+            data:      $allExtracted,
+            token:     $token,
+            guildId:   $updatedState['guild_id'] ?? null,
+            username:  $updatedState['username'] ?? null,
+            threadId:  $updatedState['thread_id'] ?? null,
+        );
+
+        return response()->json([
+            'type' => 4,
+            'data' => [
+                'content' => __('discord.interview_processing_registration'),
+                'flags'   => 64,
+            ],
         ]);
     }
 
@@ -1601,7 +2467,7 @@ class DiscordController extends Controller
         ]);
 
         if (! $discordId) {
-            return $this->ephemeralError('No se pudo identificar tu usuario.');
+            return $this->ephemeralError(__('discord.user_not_found'));
         }
 
         \App\Jobs\Discord\ProcessBuscarActividadJob::dispatch(
@@ -1644,7 +2510,7 @@ class DiscordController extends Controller
             Log::warning('[DiscordController@handleActividadCommand] Canal sin Vault', [
                 'channel_id' => $channelId,
             ]);
-            return $this->ephemeralError('⚠️ Este canal no pertenece a ningún Vault activo. Usa el comando desde el canal del Vault.');
+            return $this->ephemeralError(__('discord.actividad_no_vault'));
         }
 
         $activityType = ArchetypeEntityType::where('archetype_id', $vault->primaryArchetype()?->id)
@@ -1657,54 +2523,51 @@ class DiscordController extends Controller
                 'vault_id'     => $vault->id,
                 'archetype_id' => $vault->primaryArchetype()?->id,
             ]);
-            return $this->ephemeralError('⚠️ Este Vault no tiene tipos de actividad configurados. Contacta a un administrador.');
+            return $this->ephemeralError(__('discord.actividad_no_type'));
         }
 
         if ($discordId) {
             Cache::put("actividad_ctx_{$discordId}", [
-                'vault_id'         => $vault->id,
-                'activity_type_id' => $activityType->id,
+                'vault_id'         => (string) $vault->id,
+                'activity_type_id' => (string) $activityType->id,
                 'ctx1_id'          => $ctx1Id,
                 'ctx2_id'          => $ctx2Id,
+                'archetype_id'     => $vault->primaryArchetype()?->id ? (string) $vault->primaryArchetype()->id : null,
             ], now()->addMinutes(30));
         }
 
-        Log::debug('[DiscordController@handleActividadCommand] Contexto cacheado, abriendo modal', [
+        Log::debug('[DiscordController@handleActividadCommand] Mostrando opciones de creación de actividad', [
             'vault_id'         => $vault->id,
             'activity_type_id' => $activityType->id,
         ]);
 
         return response()->json([
-            'type' => 9,
+            'type' => 4,
             'data' => [
-                'custom_id'  => 'actividad_modal',
-                'title'      => 'Nueva Actividad — ' . mb_substr($vault->name, 0, 40),
-                'components' => [
-                    [
-                        'type'       => 1,
-                        'components' => [[
-                            'type'        => 4,
-                            'custom_id'   => 'titulo',
-                            'label'       => '¿Qué estás buscando?',
-                            'style'       => 1,
-                            'placeholder' => 'Ej: Busco tanque para mazmorra épica',
-                            'min_length'  => 5,
-                            'max_length'  => 100,
-                            'required'    => true,
-                        ]],
+                'flags'  => 64,
+                'embeds' => [[
+                    'title'       => __('discord.actividad_choice_title'),
+                    'description' => __('discord.actividad_choice_desc'),
+                    'color'       => 3447003,
+                    'footer'      => ['text' => __('discord.footer')],
+                ]],
+                'components' => [[
+                    'type'       => 1,
+                    'components' => [
+                        [
+                            'type'      => 2,
+                            'style'     => 1,
+                            'label'     => __('discord.actividad_choice_btn_modal'),
+                            'custom_id' => 'actividad_modal_open',
+                        ],
+                        [
+                            'type'      => 2,
+                            'style'     => 2,
+                            'label'     => __('discord.interview_btn_label'),
+                            'custom_id' => 'actividad_interview_start',
+                        ],
                     ],
-                    [
-                        'type'       => 1,
-                        'components' => [[
-                            'type'        => 4,
-                            'custom_id'   => 'extra_context',
-                            'label'       => 'Contexto Extra (Opcional)',
-                            'style'       => 2,
-                            'placeholder' => 'Ej: Fines de semana 8pm, nivel 80+...',
-                            'required'    => false,
-                        ]],
-                    ],
-                ],
+                ]],
             ],
         ]);
     }
@@ -1728,7 +2591,7 @@ class DiscordController extends Controller
             Log::warning('[DiscordController@handleActividadModal] Caché expirada', [
                 'discord_id' => $discordId,
             ]);
-            return $this->ephemeralError('⏳ La sesión expiró. Repite el comando `/actividad crear`.');
+            return $this->ephemeralError(__('discord.actividad_session_expired'));
         }
 
         \App\Jobs\Discord\ProcessCreateActividadJob::dispatch(
@@ -1750,5 +2613,92 @@ class DiscordController extends Controller
         ]);
 
         return response()->json(['type' => 5, 'data' => ['flags' => 64]]);
+    }
+
+    /**
+     * Botón actividad_modal_open — abre el modal rápido de actividad (opción directa).
+     */
+    private function handleActividadModalOpen(array $interaction, string $discordId, string $token): JsonResponse
+    {
+        $cached = Cache::get("actividad_ctx_{$discordId}", []);
+
+        Log::info('[DiscordController@handleActividadModalOpen] Abriendo modal de actividad', [
+            'discord_id'  => $discordId,
+            'cached_keys' => array_keys($cached),
+        ]);
+
+        if (empty($cached['vault_id'])) {
+            Log::warning('[DiscordController@handleActividadModalOpen] Caché expirada', [
+                'discord_id' => $discordId,
+            ]);
+            return $this->ephemeralError(__('discord.actividad_session_expired'));
+        }
+
+        return response()->json([
+            'type' => 9,
+            'data' => [
+                'custom_id'  => 'actividad_modal',
+                'title'      => __('discord.actividad_modal_title_short'),
+                'components' => [
+                    [
+                        'type'       => 1,
+                        'components' => [[
+                            'type'        => 4,
+                            'custom_id'   => 'titulo',
+                            'label'       => __('discord.actividad_label_title'),
+                            'style'       => 1,
+                            'placeholder' => __('discord.actividad_placeholder_title'),
+                            'min_length'  => 5,
+                            'max_length'  => 100,
+                            'required'    => true,
+                        ]],
+                    ],
+                    [
+                        'type'       => 1,
+                        'components' => [[
+                            'type'        => 4,
+                            'custom_id'   => 'extra_context',
+                            'label'       => __('discord.actividad_label_extra'),
+                            'style'       => 2,
+                            'placeholder' => __('discord.actividad_placeholder_extra'),
+                            'required'    => false,
+                        ]],
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Botón actividad_interview_start — inicia la entrevista conversacional para la actividad.
+     */
+    private function handleActividadInterviewStart(array $interaction, string $discordId, string $token): JsonResponse
+    {
+        $cached = Cache::get("actividad_ctx_{$discordId}", []);
+
+        Log::info('[DiscordController@handleActividadInterviewStart] Iniciando entrevista de actividad', [
+            'discord_id'  => $discordId,
+            'cached_keys' => array_keys($cached),
+        ]);
+
+        if (empty($cached['vault_id'])) {
+            Log::warning('[DiscordController@handleActividadInterviewStart] Caché expirada', [
+                'discord_id' => $discordId,
+            ]);
+            return $this->ephemeralError(__('discord.actividad_session_expired'));
+        }
+
+        return $this->handleInterviewStart(
+            $interaction,
+            $token,
+            'activities_vibe',
+            [
+                'vault_id'         => $cached['vault_id'],
+                'activity_type_id' => $cached['activity_type_id'] ?? null,
+                'ctx1_id'          => $cached['ctx1_id'] ?? null,
+                'ctx2_id'          => $cached['ctx2_id'] ?? null,
+            ],
+            $cached['archetype_id'] ?? null,
+        );
     }
 }

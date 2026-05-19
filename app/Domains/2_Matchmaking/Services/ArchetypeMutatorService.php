@@ -143,6 +143,51 @@ class ArchetypeMutatorService
     }
 
     /**
+     * Construye las filas Discord para el modal de campos estructurados de la entrevista.
+     *
+     * Filtra los mutators del arquetipo a los field_keys indicados y los convierte en
+     * componentes de modal usando buildMutatorDiscordRow (máx. DISCORD_MODAL_MAX).
+     *
+     * @param  list<string>  $formFieldKeys  Field keys que deben aparecer en el modal
+     * @param  array<string,string>  $prefill  Valores ya capturados (para pre-rellenar)
+     * @return list<array>  Filas Discord listas para incluir en data.components del modal
+     */
+    public function buildInterviewFormModal(string $archetypeId, array $formFieldKeys, array $prefill = [], string $context = 'registration'): array
+    {
+        Log::debug('[ArchetypeMutatorService@buildInterviewFormModal]', [
+            'archetype_id'    => $archetypeId,
+            'form_field_keys' => $formFieldKeys,
+            'context'         => $context,
+        ]);
+
+        $mutators = $this->getFieldsForContext($archetypeId, $context)
+            ->filter(fn($m) => in_array($m->field_key, $formFieldKeys, true))
+            ->sortBy('sort_order')
+            ->values();
+
+        if ($mutators->isEmpty()) {
+            Log::warning('[ArchetypeMutatorService@buildInterviewFormModal] Sin mutators form para el arquetipo', [
+                'archetype_id'    => $archetypeId,
+                'form_field_keys' => $formFieldKeys,
+            ]);
+            return [];
+        }
+
+        if ($mutators->count() > self::DISCORD_MODAL_MAX) {
+            Log::warning('[ArchetypeMutatorService@buildInterviewFormModal] Más de 5 campos — truncando a 5', [
+                'archetype_id' => $archetypeId,
+                'total'        => $mutators->count(),
+            ]);
+        }
+
+        return $mutators
+            ->take(self::DISCORD_MODAL_MAX)
+            ->map(fn($m) => $this->buildMutatorDiscordRow($m, $prefill))
+            ->values()
+            ->all();
+    }
+
+    /**
      * Construye el modal completo de step1 con el género pre-seleccionado.
      * Soporta prefill para edición o selección previa de género vía botón.
      */

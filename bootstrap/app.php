@@ -12,7 +12,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->redirectGuestsTo(function (\Illuminate\Http\Request $request) {
-            if ($request->is('invite/bot/*')) {
+            if ($request->is('invite/bot*')) {
                 return route('auth.discord.redirect');
             }
         });
@@ -21,6 +21,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/v1/*',
             'api/v2/*',
             'auth/discord/*',
+            'api/voice/*',
         ]);
         $middleware->trustProxies(at: '*');
         $middleware->append(\App\Http\Middleware\ContextualLogging::class);
@@ -31,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'discord.guild'  => \App\Http\Middleware\EnsureDiscordGuildRegistered::class,
             'discord.command'=> \App\Http\Middleware\EnsureDiscordCommandPermission::class,
             'discord.energy' => \App\Http\Middleware\EnsurePlayerHasEnergy::class,
+            'voice.bridge'   => \App\Http\Middleware\VerifyVoiceBridgeSecret::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -39,7 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Http\Request $request
         ) {
             if (! $request->expectsJson()) {
-                if ($request->is('discord/*') || $request->is('invite/bot/*')) {
+                if ($request->is('discord/*') || $request->is('invite/bot*')) {
                     return redirect()->route('auth.discord.redirect');
                 }
             }

@@ -14,7 +14,8 @@ class ConfigurableAgentRegistryTest extends TestCase
         // by dedicated implementations outside of ConfigurableAgentRegistry.
         // These agents have dedicated implementations and are not routed through ConfigurableAgentRegistry.
         // optimizer también tiene implementación dedicada (inyector semántico), no pasa por ConfigurableAgentRegistry
-        $nonConfigurableAgents = ['librarian', 'gatekeeper', 'safety', 'embedding', 'critic', 'optimizer'];
+        // interviewer has its own dedicated InterviewerPrompt pipeline outside ConfigurableAgentRegistry
+        $nonConfigurableAgents = ['librarian', 'gatekeeper', 'safety', 'embedding', 'critic', 'optimizer', 'interviewer'];
 
         $catalog = app(AgentCatalog::class)->all();
         $registry = app(ConfigurableAgentRegistry::class);

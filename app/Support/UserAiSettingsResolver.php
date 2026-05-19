@@ -56,8 +56,11 @@ class UserAiSettingsResolver
                 'optimizer'      => config('historia.ai.models.optimizer', ''),
                 'optimizer_fast' => config('historia.ai.models.optimizer_fast', ''),
             ],
-            'agents'          => [],
-            'agent_providers' => [],
+            'agents'              => [],
+            'agent_providers'     => [],
+            'agent_reasoning'     => [],   // agentKey => bool
+            'agent_budget_tokens' => [],   // agentKey => int
+            'safety_driver'       => 'llm', // 'llm' | 'openai_moderation'
             'qa_policy' => [
                 'simple'  => 'adaptive',
                 'complex' => 'adaptive',
@@ -103,15 +106,20 @@ class UserAiSettingsResolver
         $resolved = $this->resolve($playerId, $vaultId, $sceneId);
 
         $aliasMap = [
-            'qa'                => 'critic',
-            'writer_qa_pass'    => 'writer',
-            'summarizer'        => 'writer',
-            'director'          => 'writer',
-            'editor'            => 'writer',
-            'statekeeper'       => 'critic',
-            'quest'             => 'librarian',
-            'quest_scaffolder'  => 'writer',
-            'content_safety'    => 'safety',   // alternate key → canonical safety
+            'qa'                   => 'critic',
+            'writer_qa_pass'       => 'writer',
+            'summarizer'           => 'writer',
+            'director'             => 'writer',
+            'editor'               => 'writer',
+            'statekeeper'          => 'critic',
+            'quest'                => 'librarian',
+            'quest_scaffolder'     => 'writer',
+            'content_safety'       => 'safety',
+            'interviewer'          => 'gatekeeper',
+            'interview_gatekeeper' => 'gatekeeper',
+            'interview_optimizer'  => 'optimizer',
+            'talkator'             => 'gatekeeper',
+            'voice_talkator'       => 'gatekeeper',
         ];
 
         $mappedKey = $aliasMap[$agentKey] ?? $agentKey;
@@ -166,6 +174,25 @@ class UserAiSettingsResolver
         return $resolved['models']['writer'] ?: 'meta-llama/llama-3-8b-instruct:free';
     }
 
+    /**
+     * Devuelve el modelo solo si está configurado explícitamente para el agente.
+     * Devuelve null si no hay modelo configurado (sin fallbacks).
+     * Usar en jobs que deben abortar claramente cuando falta configuración.
+     */
+    public function resolveExplicitAgentModel(
+        ?string $playerId,
+        string $agentKey,
+        ?string $vaultId = null,
+        ?string $sceneId = null,
+    ): ?string {
+        $resolved  = $this->resolve($playerId, $vaultId, $sceneId);
+        $candidate = $resolved['agents'][$agentKey] ?? null;
+
+        return (is_string($candidate) && trim($candidate) !== '')
+            ? trim($candidate)
+            : null;
+    }
+
     public function resolveAgentProvider(
         ?string $playerId,
         string $agentKey,
@@ -183,7 +210,12 @@ class UserAiSettingsResolver
             'statekeeper'       => 'critic',
             'quest'             => 'librarian',
             'quest_scaffolder'  => 'writer',
-            'content_safety'    => 'safety',
+            'content_safety'       => 'safety',
+            'interviewer'          => 'gatekeeper',
+            'interview_gatekeeper' => 'gatekeeper',
+            'interview_optimizer'  => 'optimizer',
+            'talkator'             => 'gatekeeper',
+            'voice_talkator'       => 'gatekeeper',
         ];
 
         $mappedKey = $aliasMap[$agentKey] ?? $agentKey;
@@ -209,6 +241,35 @@ class UserAiSettingsResolver
             'disabled' => 'disabled',
             default => $isFreeModel === true ? 'auto' : 'manual',
         };
+    }
+
+    public function resolveAgentReasoning(
+        ?string $playerId,
+        string $agentKey,
+        ?string $vaultId = null,
+        ?string $sceneId = null,
+    ): bool {
+        $resolved = $this->resolve($playerId, $vaultId, $sceneId);
+
+        $mappedKey = $aliasMap[$agentKey] ?? $agentKey;
+        return (bool) ($resolved['agent_reasoning'][$mappedKey] ?? false);
+    }
+
+    public function resolveSafetyDriver(?string $playerId = null, ?string $vaultId = null, ?string $sceneId = null): string
+    {
+        $resolved = $this->resolve($playerId, $vaultId, $sceneId);
+        return $resolved['safety_driver'];
+    }
+
+    public function resolveAgentBudgetTokens(
+        ?string $playerId,
+        string $agentKey,
+        ?string $vaultId = null,
+        ?string $sceneId = null,
+        int $default = 8000,
+    ): int {
+        $resolved = $this->resolve($playerId, $vaultId, $sceneId);
+        return (int) ($resolved['agent_budget_tokens'][$agentKey] ?? $default);
     }
 
     /**
@@ -263,6 +324,14 @@ class UserAiSettingsResolver
                         unset($resolved['agents'][(string) $agentKey], $resolved['models'][(string) $agentKey]);
                     }
                 }
+
+                if (isset($agentConfig['reasoning']) && is_bool($agentConfig['reasoning'])) {
+                    $resolved['agent_reasoning'][(string) $agentKey] = $agentConfig['reasoning'];
+                }
+
+                if (isset($agentConfig['budget_tokens']) && is_numeric($agentConfig['budget_tokens'])) {
+                    $resolved['agent_budget_tokens'][(string) $agentKey] = (int) $agentConfig['budget_tokens'];
+                }
             }
         }
 
@@ -305,6 +374,11 @@ class UserAiSettingsResolver
                     $resolved['qa_policy'][$modeKey] = trim($value);
                 }
             }
+        }
+
+        $safetyDriver = $settings['safety_driver'] ?? null;
+        if (is_string($safetyDriver) && in_array($safetyDriver, ['llm', 'openai_moderation'], true)) {
+            $resolved['safety_driver'] = $safetyDriver;
         }
 
         return $resolved;

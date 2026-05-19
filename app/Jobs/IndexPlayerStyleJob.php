@@ -5,9 +5,11 @@ namespace App\Jobs;
 use App\Application\Contracts\EmbeddingGateway;
 use App\Application\Services\QdrantService;
 use App\Domains\Community\Models\Player;
-use App\Enums\IndexingStatus;
-use App\Infrastructure\Ai\Agents\StyleOptimizerAgent;
+use App\Domains\Matchmaking\Models\Archetype;
+use App\Domains\Matchmaking\Services\ArchetypeMutatorService;
 use App\Models\PlayerArchetypeProfile;
+use App\Enums\IndexingStatus;
+use App\Infrastructure\Ai\Agents\ProfileOptimizerAgent;
 use App\Support\UserAiSettingsResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -33,11 +35,12 @@ class IndexPlayerStyleJob implements ShouldQueue
         EmbeddingGateway $gateway,
         QdrantService $qdrant,
         UserAiSettingsResolver $resolver,
-        StyleOptimizerAgent $optimizer,
+        ProfileOptimizerAgent $optimizer,
+        ArchetypeMutatorService $mutatorService,
     ): void {
         Log::info("IndexPlayerStyleJob: Iniciando procesamiento para profile {$this->playerArchetypeProfileId}");
 
-        $profile = PlayerArchetypeProfile::with(['player', 'tags'])->find($this->playerArchetypeProfileId);
+        $profile = PlayerArchetypeProfile::with(['player', 'tags', 'optimizable', 'archetype'])->find($this->playerArchetypeProfileId);
 
         if (! $profile || ! $profile->player) {
             Log::warning("IndexPlayerStyleJob: profile {$this->playerArchetypeProfileId} o su player no encontrados.");
@@ -45,7 +48,7 @@ class IndexPlayerStyleJob implements ShouldQueue
         }
 
         $player       = $profile->player;
-        $originalText = $this->buildProfileText($player, $profile);
+        $originalText = $this->buildProfileText($player, $profile, $mutatorService);
 
         if ($originalText === '') {
             Log::warning("IndexPlayerStyleJob: profile {$profile->id} sin datos para indexar.");
@@ -58,19 +61,35 @@ class IndexPlayerStyleJob implements ShouldQueue
 
         Log::debug("IndexPlayerStyleJob: Texto original construido (length: " . strlen($originalText) . ")");
 
-        try {
-            $textForEmbedding = $optimizer->optimize($originalText, $player->id ?? 0, $profile->archetype_id);
-            Log::debug("IndexPlayerStyleJob: Texto optimizado obtenido (length: " . strlen($textForEmbedding) . ")");
-        } catch (\RuntimeException $e) {
-            Log::error('IndexPlayerStyleJob: optimizer falló — job abortado, perfil NO indexado.', [
+        // Prefer pre-generated text from ProcessRegistroStep2Job (saved in optimizables table).
+        // Only run ProfileOptimizerAgent when no pre-generated text exists (e.g. admin-triggered re-index).
+        $preOptimized = $profile->getOptimizedText();
+        if ($preOptimized !== null && trim($preOptimized) !== '') {
+            $textForEmbedding = $preOptimized;
+            Log::debug('IndexPlayerStyleJob: Usando texto pre-optimizado de optimizables.', [
                 'profile_id' => $profile->id,
-                'error'      => $e->getMessage(),
+                'length'     => mb_strlen($textForEmbedding),
             ]);
-            $profile->update([
-                'indexing_status' => IndexingStatus::Failed,
-                'index_error'     => '[StyleOptimizer] ' . $e->getMessage(),
-            ]);
-            return;
+        } else {
+            $archetype = $profile->archetype instanceof Archetype ? $profile->archetype : null;
+            try {
+                $result           = $optimizer->optimize($originalText, $archetype, (string) $player->id);
+                $textForEmbedding = $result['optimized_text'];
+                Log::debug('IndexPlayerStyleJob: Texto optimizado por ProfileOptimizerAgent.', [
+                    'profile_id' => $profile->id,
+                    'length'     => mb_strlen($textForEmbedding),
+                ]);
+            } catch (\RuntimeException $e) {
+                Log::error('IndexPlayerStyleJob: optimizer falló — job abortado, perfil NO indexado.', [
+                    'profile_id' => $profile->id,
+                    'error'      => $e->getMessage(),
+                ]);
+                $profile->update([
+                    'indexing_status' => IndexingStatus::Failed,
+                    'index_error'     => '[ProfileOptimizer] ' . $e->getMessage(),
+                ]);
+                return;
+            }
         }
 
         $model = $resolver->resolveAgentModel($player->id ?? 0, 'embedding');
@@ -165,7 +184,7 @@ class IndexPlayerStyleJob implements ShouldQueue
         ]);
     }
 
-    private function buildProfileText(Player $player, PlayerArchetypeProfile $profile): string
+    private function buildProfileText(Player $player, PlayerArchetypeProfile $profile, ArchetypeMutatorService $mutatorService): string
     {
         $parts    = [];
         $metadata = (array) ($profile->metadata ?? []);
@@ -190,14 +209,23 @@ class IndexPlayerStyleJob implements ShouldQueue
             $parts[] = 'Affinities: ' . implode(', ', $prefs) . '.';
         }
 
-        $expLevel = $metadata['experience_level'] ?? null;
-        if ($expLevel !== null) {
-            $parts[] = "Experience level: {$expLevel}/5.";
-        }
-
-        $verbLevel = $metadata['verbosity_level'] ?? null;
-        if ($verbLevel !== null) {
-            $parts[] = "Verbosity: {$verbLevel}/5.";
+        // Include ALL semantic mutator fields using archetype definitions for proper labels.
+        // Falls back to two hardcoded legacy fields when no archetype is available.
+        if ($profile->archetype_id !== null) {
+            $mutators = $mutatorService->getFieldsForContext($profile->archetype_id, 'registration');
+            foreach ($mutators->filter(fn ($m) => $m->storage_mode->storesSemantic()) as $m) {
+                $value = $metadata[$m->field_key] ?? null;
+                if ($value !== null && trim((string) $value) !== '') {
+                    $parts[] = "{$m->field_label}: {$value}.";
+                }
+            }
+        } else {
+            if (($expLevel = $metadata['experience_level'] ?? null) !== null) {
+                $parts[] = "Experience level: {$expLevel}/5.";
+            }
+            if (($verbLevel = $metadata['verbosity_level'] ?? null) !== null) {
+                $parts[] = "Verbosity: {$verbLevel}/5.";
+            }
         }
 
         $bio = trim((string) ($player->about_me ?? ''));

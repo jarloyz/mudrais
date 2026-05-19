@@ -19,7 +19,8 @@ class AgentCatalogTest extends TestCase
         $this->assertContains('writer', $keys);
         $this->assertContains('critic', $keys);
         $this->assertContains('optimizer', $keys);
-        $this->assertCount(7, $catalog);
+        $this->assertContains('interviewer', $keys);
+        $this->assertCount(8, $catalog);
     }
 
     public function test_catalog_entries_have_required_fields(): void
@@ -57,6 +58,6 @@ class AgentCatalogTest extends TestCase
         $this->assertArrayHasKey('critic', $map);
         $this->assertArrayHasKey('safety', $map);
         $this->assertArrayHasKey('optimizer', $map);
-        $this->assertCount(7, $map);
+        $this->assertCount(8, $map);
     }
 }

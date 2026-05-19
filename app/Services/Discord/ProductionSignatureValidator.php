@@ -8,7 +8,15 @@ use Illuminate\Support\Facades\Log;
 
 class ProductionSignatureValidator implements DiscordSignatureValidator
 {
-    public function __construct(private readonly string $publicKey) {}
+    /**
+     * @param string $fallbackPublicKey  Legacy key (DISCORD_PUBLIC_KEY) — usado cuando
+     *                                   application_id no se encuentra en el mapa de bots.
+     * @param array  $botsMap            Mapa app_id → public_key para multi-bot.
+     */
+    public function __construct(
+        private readonly string $fallbackPublicKey,
+        private readonly array  $botsMap = [],
+    ) {}
 
     public function isValid(Request $request): bool
     {
@@ -17,19 +25,47 @@ class ProductionSignatureValidator implements DiscordSignatureValidator
         $body       = $request->getContent();
 
         if (!$signature || !$timestamp) {
-            Log::warning('Discord: request rechazada — faltan cabeceras de firma.');
+            Log::warning('[ProductionSignatureValidator] Request rechazada — faltan cabeceras de firma.');
             return false;
         }
+
+        $publicKey = $this->resolvePublicKey($body);
 
         try {
             return sodium_crypto_sign_verify_detached(
                 hex2bin($signature),
                 $timestamp . $body,
-                hex2bin($this->publicKey)
+                hex2bin($publicKey)
             );
         } catch (\Throwable $e) {
-            Log::error('Discord: error al verificar firma — ' . $e->getMessage());
+            Log::error('[ProductionSignatureValidator] Error al verificar firma — ' . $e->getMessage());
             return false;
         }
+    }
+
+    private function resolvePublicKey(string $body): string
+    {
+        if (empty($this->botsMap)) {
+            return $this->fallbackPublicKey;
+        }
+
+        $appId = $this->extractAppId($body);
+
+        if ($appId && isset($this->botsMap[$appId])) {
+            return (string) $this->botsMap[$appId];
+        }
+
+        Log::debug('[ProductionSignatureValidator] application_id no encontrado en bots map, usando fallback.', [
+            'app_id' => $appId,
+        ]);
+
+        return $this->fallbackPublicKey;
+    }
+
+    private function extractAppId(string $body): ?string
+    {
+        $decoded = json_decode($body, true);
+
+        return isset($decoded['application_id']) ? (string) $decoded['application_id'] : null;
     }
 }
