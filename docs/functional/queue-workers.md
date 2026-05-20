@@ -6,15 +6,31 @@ Referencia para levantar los workers de colas en desarrollo (Docker/Sail) y prod
 
 ## Arquitectura de colas
 
-El sistema usa 5 colas dedicadas para evitar que jobs lentos bloqueen a los urgentes:
+El sistema usa 6 colas dedicadas para evitar que jobs lentos bloqueen a los urgentes:
 
 | Queue | Jobs que procesa | Urgencia | Timeout por job |
 |-------|-----------------|----------|-----------------|
 | `high` | Búsquedas Discord, status, views | Crítica — Discord espera < 3s | 30s |
-| `default` | Modales de registro, ficha, mensajes | Alta — respuesta de usuario | 60s |
+| `default` | Modales de registro, ficha, mensajes, `ProcessInterviewTurnJob` (Weaver) | Alta — respuesta de usuario | 60s |
+| `voice` | `ProcessVoiceInterviewTurnJob` (Voice) | Alta — voice-bridge espera respuesta | 60s |
 | `index` | IndexAvatarJob, IndexVaultJob, IndexPlayerStyleJob, IndexLoreEntryJob, IndexActivityJob | Media — pipeline LLM completo | 180s |
 | `tags` | NormalizeSingleTagJob, NormalizeAvatarTagsJob, NormalizePlayerTagsJob | Baja — puede correr en paralelo | 60s |
 | `sync` | SyncActivityHubStatusJob, SyncPlayerQdrantGuildsJob | Background — sin urgencia | 60s |
+
+### Microservicio voice-bridge (Node.js)
+
+El servicio `voice-bridge` no es un worker de Laravel — es un contenedor Node.js independiente
+que corre en paralelo al stack y se comunica con Laravel vía HTTP REST + Redis.
+
+| Rol | Mecanismo |
+|---|---|
+| Detectar inicio de sesión | Pollea `GET /api/voice/pending-start` cada 2s (LPOP Redis atómico) |
+| Iniciar sesión | `POST /api/voice/session/start` |
+| Entregar transcript | `POST /api/voice/transcription` → respuesta streaming de TalkatorAgent |
+| Obtener siguiente pregunta | Pollea `GET /api/voice/next-question/{sessionId}` cada 500ms (LPOP Redis) |
+
+En desarrollo corre como servicio Docker en `compose.yaml`. En producción Supervisor gestiona
+el contenedor via Docker Compose (ver `supervisord.conf`).
 
 ---
 
@@ -163,6 +179,21 @@ stdout_logfile=/var/www/mudrais/storage/logs/worker-tags.log
 stopwaitsecs=90
 startsecs=1
 
+[program:mudrais-worker-voice]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/mudrais/artisan queue:work redis --queue=voice --timeout=60 --tries=2 --sleep=1 --memory=128 --name=worker-voice
+directory=/var/www/mudrais
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=2
+redirect_stderr=true
+stdout_logfile=/var/www/mudrais/storage/logs/worker-voice.log
+stopwaitsecs=90
+startsecs=1
+
 [program:mudrais-worker-sync]
 process_name=%(program_name)s_%(process_num)02d
 command=php /var/www/mudrais/artisan queue:work redis --queue=sync --timeout=60 --tries=2 --sleep=10 --memory=128 --name=worker-sync
@@ -179,7 +210,7 @@ stopwaitsecs=90
 startsecs=1
 
 [group:mudrais-workers]
-programs=mudrais-worker-high,mudrais-worker-default,mudrais-worker-index,mudrais-worker-tags,mudrais-worker-sync
+programs=mudrais-worker-high,mudrais-worker-default,mudrais-worker-voice,mudrais-worker-index,mudrais-worker-tags,mudrais-worker-sync
 ```
 
 ### Activar y gestionar

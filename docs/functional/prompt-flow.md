@@ -360,6 +360,159 @@ Esto hace que `optimizer` sea un override total del pipeline legacy.
 
 ---
 
+---
+
+## Pipeline 7 — Entrevista de texto: MUDRAIS Weaver
+
+**Trigger:** `/interview` en Discord (sin opción `respuesta` para iniciar; con `respuesta` para cada turno).
+**Queue:** `default` — `ProcessInterviewTurnJob`.
+
+```
+/interview (turno 0, sin respuesta)
+        │
+[InterviewerAgent.resolveFields(archetypeId, 'registration')]
+  Lee: ArchetypeMutator del arquetipo activo (registration context)
+  Output: array de campos con field_key, field_label, is_required, hint
+        │
+        ▼ Genera pregunta de apertura
+  Prompt: ArchetypePrompt(interview_opening) | fallback: i18n discord.interview_opening_question
+        │
+/interview respuesta:"texto del jugador" (turno N)
+        │
+        ▼
+[InterviewGatekeeperAgent]
+  Prompt:  ArchetypePrompt('interview_gatekeeper')
+           | AiPromptTemplate('interview_gatekeeper')
+           | InterviewGatekeeperPrompt::getFallbackPrompt()  ← PHP
+  Input:   { respuesta_del_jugador, campos_pendientes_json, archetype_context }
+  Output:  { english_text: string, extracted: { field_key: value } }
+  Temp: 0.1 | Tokens: 600
+        │
+        ▼
+[InterviewOptimizerAgent]
+  Reutiliza lógica de resolución de StyleOptimizer/OptimizerProfile:
+    1. ArchetypePrompt('optimizer') si existe → override completo
+    2. AiPromptTemplate('interview_optimizer') con {archetype_prompt_injection} ← player_profile
+  Input:   campos extraídos no vacíos
+  Output:  campos normalizados (inglés, limpios)
+  Temp: 0.1 | Tokens: 400
+        │
+        ▼
+[RegistrationAnalystAgent]  — PHP puro, sin LLM
+  campo completo: mb_strlen(trim(value)) >= 3
+  Output: { is_complete: bool, missing_required: [], missing_optional: [], complete_fields: [] }
+        │
+  ┌── is_complete? ──NO──▶ [InterviewerAgent]
+  │                          Prompt: ArchetypePrompt('interviewer')
+  │                                  | AiPromptTemplate('interviewer_question')
+  │                                  | InterviewerPrompt::getDefaultPrompt()  ← PHP
+  │                          Input:  { missing_fields, all_fields, conversation_history }
+  │                          Output: siguiente pregunta (una sola)
+  │                          Temp: 0.7 | Tokens: 200
+  │
+  └── is_complete? ──SÍ──▶ Embed de confirmación → btn_interview_accept
+                             ProcessInterviewAcceptJob
+                               → setea registro_step1_{discordId} + registro_archetype_{discordId}
+                               → ProcessRegistroStep2Job → Pipeline 1 + Pipelines 2/3/4
+```
+
+**Prompts involucrados:**
+
+| Prompt | Origen | Modificable sin deploy |
+|---|---|---|
+| `ArchetypePrompt(interview_gatekeeper)` | DB por archetype | **Sí — Filament** |
+| `AiPromptTemplate(interview_gatekeeper)` | DB global (fallback) | **Sí — DB directo** |
+| `AiPromptTemplate(interview_optimizer)` | DB global | **Sí — DB directo** |
+| `ArchetypePrompt(interviewer)` | DB por archetype | **Sí — Filament** |
+| `AiPromptTemplate(interviewer_question)` | DB global (fallback) | **Sí — DB directo** |
+| `ArchetypePrompt(interview_opening)` | DB por archetype | **Sí — Filament** |
+
+---
+
+## Pipeline 8 — Entrevista de voz: MUDRAIS Voice
+
+**Trigger:** `/voice-interview` (bot Gamma) → señal Redis → `voice-bridge` (Node.js).
+**Queue:** `voice` — `ProcessVoiceInterviewTurnJob`.
+
+```
+/voice-interview (Discord Gamma bot)
+        │
+[DiscordController@handleVoiceInterviewCommand]
+  → VoiceInterviewSessionManager::pushStartCommand() en Redis
+  → type:5 deferred ephemeral
+
+        ──── voice-bridge (Node.js) ────────────────────────────
+
+GET /api/voice/pending-start  (polling cada 2s)
+  → LPOP atómico — consume señal
+
+POST /api/voice/session/start
+        │
+[VoiceInterviewController@startSession]
+  → Carga archetypes incompletos del jugador (cola)
+  → Pregunta de apertura del primer archetype
+  → VoiceTextTranslator::toEnglish(opening_question)
+  → Retorna { session_id, opening_question_en, archetype_id }
+
+[voice-bridge] sintetiza opening_question_en (Speechmatics TTS en inglés)
+               escucha audio del usuario en el canal de voz
+
+        ──── por cada respuesta de voz ─────────────────────────
+
+[Speechmatics API] transcripción en tiempo real
+  Audio → raw transcript string
+
+POST /api/voice/transcription { session_id, transcript, discord_id }
+        │
+[VoiceInterviewController@handleTranscription]
+  │
+  ├── Despacha ProcessVoiceInterviewTurnJob (queue 'voice', background)
+  │
+  └── StreamedResponse: TalkatorAgent.respond(transcript, 'en', callback)
+        Prompt: AiPromptTemplate('talkator') | TalkatorPrompt  ← PHP fallback
+        Output: respuesta conversacional en streaming (inglés)
+        → voice-bridge reproduce audio mientras el job procesa
+
+        ──── ProcessVoiceInterviewTurnJob (background) ─────────
+
+[VoiceInterviewTurnAgent]  — UNA sola llamada LLM
+  Prompt: AiPromptTemplate('voice_interview_turn') | VoiceInterviewTurnPrompt  ← PHP
+  Input:  { transcript, all_fields, already_extracted, conversation_history, last_question }
+  Output: { response_type: 'answer'|'off_topic'|'spam', extracted: {}, next_question: string|null }
+  Temp: 0.2 | Tokens: 600
+
+  response_type != 'answer' → pushNextQuestion(voice_off_topic_redirect, inglés)
+
+[VoiceAnalystAgent]  — PHP puro, sin LLM
+  Evalúa extracted + requiredFieldKeys + optionalFieldKeys
+  Output: { is_complete, missing_required, missing_optional }
+
+  is_complete? → completeCurrentArchetype() → advanceToNextArchetype()
+    hasNext? → resolveOpeningQuestion() → pushNextQuestion (inglés)
+    !hasNext? → pushNextQuestion(voice_session_complete)
+
+  !is_complete? → pushNextQuestion(turnResult.next_question, ya en inglés)
+
+GET /api/voice/next-question/{sessionId}  (polling cada 500ms)
+  → LPOP atómico
+  → voice-bridge reproduce pregunta en el canal de voz
+```
+
+**Nota sobre idiomas:** Todo lo que sale del pipeline hacia el TTS va en inglés (Speechmatics solo
+tiene voces en inglés). `VoiceTextTranslator::toEnglish()` traduce si el locale es `es`.
+Los campos extraídos se guardan en inglés por consistencia con el pipeline de vectorización.
+
+**Prompts involucrados:**
+
+| Prompt | Origen | Modificable sin deploy |
+|---|---|---|
+| `AiPromptTemplate('voice_interview_turn')` | DB global | **Sí — DB directo** |
+| `VoiceInterviewTurnPrompt` (PHP) | Hardcoded | No |
+| `AiPromptTemplate('talkator')` | DB global | **Sí — DB directo** |
+| `TalkatorPrompt` (PHP) | Hardcoded | No |
+
+---
+
 ## Problemas conocidos
 
 | Problema | Causa | Fix |

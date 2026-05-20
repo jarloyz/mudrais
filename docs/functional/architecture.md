@@ -18,6 +18,22 @@ contextos colaborativos. Cada servidor de Discord es un tenant independiente (Gu
 El flujo central: un jugador se registra → su perfil se vectoriza → el motor empareja
 jugadores compatibles → los conecta en actividades colaborativas.
 
+La ingesta de perfil puede ocurrir por tres vías:
+
+| Capa | Mecanismo | Comando |
+|---|---|---|
+| Modal clásico | Formulario Discord de campos fijos | `/registro` |
+| **MUDRAIS Weaver** | Agente conversacional multi-turno en texto (chat en Discord) | `/interview` |
+| **MUDRAIS Voice** | Entrevista de voz — transcripción Speechmatics → pipeline Weaver | `/voice-interview` (bot Gamma) |
+
+**MUDRAIS Weaver** reemplaza modales rígidos por una conversación guiada por IA. El agente
+extrae los campos del arquetipo mediante chat natural en Discord, evalúa completitud con PHP
+puro y confirma el perfil antes de lanzar el pipeline de vectorización existente.
+
+**MUDRAIS Voice** es la capa multimodal. El usuario habla en un canal de voz; el microservicio
+`voice-bridge` (Node.js) transcribe en tiempo real con Speechmatics y entrega el texto al
+pipeline de Weaver en Laravel vía Redis. El usuario nunca toca el teclado.
+
 ---
 
 ## 2. Stack
@@ -32,7 +48,9 @@ jugadores compatibles → los conecta en actividades colaborativas.
 | LLM gateway | OpenRouter (modelos: configurable por guild/jugador) |
 | Embeddings | nvidia/llama-nemotron-embed-vl-1b-v2 (2048 dims) |
 | Moderación | OpenAI Moderation API |
-| Transport | Discord (slash commands, modales, webhooks) |
+| Transport | Discord (slash commands, modales, webhooks, voice gateway) |
+| Voice transcription | Speechmatics API (real-time, alta fidelidad) |
+| Voice microservice | Node.js — `voice-bridge` container (Discord voice gateway + polling) |
 | Entorno | Laravel Sail (Docker) |
 
 ---
@@ -296,6 +314,15 @@ Usuario completa formulario Discord
 | `TagNormalizerService` | Normaliza términos semánticos a tags canónicos | interno |
 | `ContentSafetyAgent` | Moderación de contenido generado | `ContentSafetyPrompt` |
 | `SceneWriterAgent` | Genera turnos narrativos *(pausado)* | `ArchetypePrompt (writer)` |
+| **— Weaver (entrevista en texto) —** | | |
+| `InterviewGatekeeperAgent` | Traduce al inglés y extrae valores de campo de una respuesta de texto | `AiPromptTemplate (interview_gatekeeper)` |
+| `InterviewOptimizerAgent` | Normaliza los campos extraídos reutilizando prompts `optimizer`/`player_profile` | `ArchetypePrompt (optimizer/player_profile)` |
+| `RegistrationAnalystAgent` | Árbitro de completitud — PHP puro, sin LLM. Campo completo = `mb_strlen >= 3` | interno |
+| `InterviewerAgent` | Formula la siguiente pregunta de la entrevista | `AiPromptTemplate (interviewer_question)` |
+| **— Voice (entrevista de voz) —** | | |
+| `VoiceInterviewTurnAgent` | Agente unificado: extrae campos + genera siguiente pregunta en UNA llamada LLM | `AiPromptTemplate (voice_interview_turn)` |
+| `VoiceAnalystAgent` | Árbitro de completitud para voz — PHP puro, evalúa campos requeridos/opcionales | interno |
+| `TalkatorAgent` | Genera respuesta conversacional en streaming para el TTS (inglés forzado) | `AiPromptTemplate (talkator)` |
 
 ---
 
@@ -329,5 +356,9 @@ Usuario completa formulario Discord
 | Guild multi-tenant | ✅ Funcionando | GuildProfile, suscripciones, comandos por guild |
 | Matchmaking hub (Qdrant) | ✅ Funcionando | upsert y búsqueda en matchmaking_hub |
 | Economía / ítems | ✅ Funcionando | GameItem, PlayerTransaction, GuildItemOverride |
+| **MUDRAIS Weaver** (`/interview`) | ✅ Funcionando | Pipeline 4 agentes; multi-turno via Redis cache; MAX_TURNS=10 |
+| **MUDRAIS Voice** (`/voice-interview`) | ✅ Funcionando | VoiceInterviewTurnAgent unificado; VoiceAnalystAgent PHP; TalkatorAgent streaming |
+| voice-bridge (Node.js) | ✅ Funcionando | Polling `/api/voice/pending-start` + `/api/voice/next-question`; Speechmatics TTS en inglés |
+| Tests Weaver/Voice | 🔲 Pendiente | Tasks 109: RegistrationAnalystAgentTest, InterviewGatekeeperAgentTest, VoiceFlowTest |
 | Chat / TurnProcessor | ⏸ Pausado | Reanudar tras completar Matchmaking |
 | Filament admin | ✅ Base completa | Archetypes, EntityTypes, Mutators, Guilds |

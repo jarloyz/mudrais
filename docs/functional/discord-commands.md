@@ -8,13 +8,15 @@ Referencia completa de todos los slash commands disponibles en el bot de MUDRAIS
 
 1. [/registro](#1-registro)
 2. [/ficha](#2-ficha)
-3. [/create_vault](#3-create_vault)
-4. [/create](#4-create)
-5. [/actividad crear](#5-actividad-crear)
-6. [/buscar-actividad](#6-buscar-actividad)
-7. [/buscar-partner](#7-buscar-partner)
-8. [/status](#8-status)
-9. [Registro de Comandos en Discord](#9-registro-de-comandos-en-discord)
+3. [/interview — MUDRAIS Weaver](#3-interview--mudrais-weaver)
+4. [/voice-interview — MUDRAIS Voice](#4-voice-interview--mudrais-voice)
+5. [/create_vault](#5-create_vault)
+6. [/create](#6-create)
+7. [/actividad crear](#7-actividad-crear)
+8. [/buscar-actividad](#8-buscar-actividad)
+9. [/buscar-partner](#9-buscar-partner)
+10. [/status](#10-status)
+11. [Registro de Comandos en Discord](#11-registro-de-comandos-en-discord)
 
 ---
 
@@ -65,7 +67,214 @@ Referencia completa de todos los slash commands disponibles en el bot de MUDRAIS
 
 ---
 
-## 3. `/create_vault`
+## 3. `/interview` — MUDRAIS Weaver
+
+**Descripción:** Ruta conversacional alternativa al modal de `/registro`. Un agente de IA guía al jugador por chat en Discord, extrayendo los campos del arquetipo mediante preguntas naturales en lugar de un formulario estático. Es la implementación de **MUDRAIS Weaver**.
+
+**Bot:** Alpha (bot principal)
+
+**Opciones:**
+
+| Nombre | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `respuesta` | String | No | Respuesta del jugador a la pregunta actual. Omitir para iniciar/reanudar la sesión. |
+| `reiniciar` | Boolean | No | Fuerza el reinicio de la sesión de entrevista desde cero. |
+
+**Flujo completo:**
+
+```
+/interview (sin opciones)
+        │
+        ▼ type:5 deferred
+ProcessInterviewTurnJob(turn=0, answer='', queue='default')
+        │
+[InterviewerAgent.resolveFields()]  — lee ArchetypeMutator del arquetipo activo
+        │
+        ▼ Si turn=0
+Genera pregunta de apertura
+  → ArchetypePrompt (agent_type='interview_opening') | fallback: i18n discord.interview_opening_question
+        │
+        ▼ El jugador responde con /interview respuesta:"..."
+ProcessInterviewTurnJob(turn=N, answer=texto, queue='default')
+        │
+[InterviewGatekeeperAgent]
+  Prompt: AiPromptTemplate('interview_gatekeeper') | ArchetypePrompt('interview_gatekeeper') | PHP fallback
+  Input:  respuesta del jugador + campos pendientes
+  Output: { english_text, extracted: {field_key: value} }
+        │
+[InterviewOptimizerAgent]
+  Reutiliza prompts optimizer/player_profile del arquetipo
+  Input:  campos extraídos no vacíos
+  Output: campos normalizados
+        │
+[RegistrationAnalystAgent]  — PHP puro, sin LLM
+  campo completo = mb_strlen(trim(value)) >= 3
+  Output: { is_complete, missing_required, complete_fields }
+        │
+  ┌── is_complete? ──NO──▶ [InterviewerAgent]
+  │                          Prompt: AiPromptTemplate('interviewer_question')
+  │                          Output: siguiente pregunta
+  │
+  └── is_complete? ──SÍ──▶ Embed de confirmación
+                             Botones: btn_interview_accept | btn_interview_retry | btn_interview_cancel
+                             │
+                             ▼ btn_interview_accept
+                           ProcessInterviewAcceptJob
+                             → setea registro_step1_{discordId} + registro_archetype_{discordId}
+                             → despacha ProcessRegistroStep2Job (pipeline completo de vectorización)
+```
+
+**Estado en caché (Redis, TTL 30 min):**
+```json
+{
+  "archetype_id": "uuid|null", "guild_id": "...", "username": "...", "locale": "es",
+  "turn": 2, "status": "in_progress|awaiting_confirmation",
+  "extracted_fields": { "preferences": "...", "style": "..." },
+  "required_field_keys": [...], "missing_required_keys": [...],
+  "conversation_history": [{"role": "assistant|user", "content": "..."}]
+}
+```
+Clave: `interview_state_{discordId}` — MAX_TURNS = 10.
+
+**Personalización por arquetipo** (Filament → Archetype → Prompts IA):
+
+| `agent_type` | Propósito |
+|---|---|
+| `interviewer` | System prompt / personalidad del agente |
+| `interview_opening` | Pregunta de apertura personalizada (turno 0) |
+| `interview_gatekeeper` | Extracción + traducción por arquetipo |
+
+**Archivos clave:**
+- `app/Infrastructure/Ai/Agents/InterviewerAgent.php`
+- `app/Infrastructure/Ai/Agents/InterviewGatekeeperAgent.php`
+- `app/Infrastructure/Ai/Agents/InterviewOptimizerAgent.php`
+- `app/Jobs/Discord/ProcessInterviewTurnJob.php`
+- `app/Jobs/Discord/ProcessInterviewAcceptJob.php`
+
+**Registrar en Discord Developer Portal:**
+```json
+{
+  "name": "interview",
+  "description": "Fill your archetype profile through an AI-guided conversation.",
+  "name_localizations": { "es-ES": "entrevista" },
+  "description_localizations": { "es-ES": "Completa tu ficha de arquetipo mediante una conversación guiada por IA." },
+  "type": 1,
+  "options": [
+    {
+      "name": "respuesta",
+      "description": "Your answer to the current interview question",
+      "name_localizations": { "es-ES": "respuesta" },
+      "type": 3,
+      "required": false
+    },
+    {
+      "name": "reiniciar",
+      "description": "Force-restart your interview session from scratch.",
+      "name_localizations": { "es-ES": "reiniciar" },
+      "type": 5,
+      "required": false
+    }
+  ]
+}
+```
+
+---
+
+## 4. `/voice-interview` — MUDRAIS Voice
+
+**Descripción:** Inicia una sesión de entrevista de voz. El bot Gamma conecta al usuario a un canal de voz; el microservicio `voice-bridge` transcribe el audio en tiempo real con Speechmatics y lo entrega al pipeline de Weaver en Laravel. El usuario nunca toca el teclado.
+
+**Bot:** Gamma (voice gateway — `discord:gateway gamma`)
+
+**Opciones:** ninguna
+
+**Flujo completo:**
+
+```
+/voice-interview (Gamma bot)
+        │
+        ▼ type:5 deferred ephemeral
+[DiscordController@handleVoiceInterviewCommand]
+  → VoiceInterviewSessionManager::pushStartCommand() en Redis
+  → type:5 ephemeral — Discord muestra spinner
+
+        ──── microservicio voice-bridge (Node.js) ────
+
+[voice-bridge polls GET /api/voice/pending-start cada 2s]
+  → Consume señal LPOP atómica de Redis
+  → Llama POST /api/voice/session/start
+        │
+[VoiceInterviewController@startSession]
+  → Construye cola de archetypes incompletos del jugador
+  → Genera pregunta de apertura (traduce a inglés para TTS)
+  → Retorna { session_id, opening_question_en, archetype_id }
+        │
+        ▼
+[voice-bridge] sintetiza opening_question_en a voz (Speechmatics TTS)
+               escucha audio del canal de voz del usuario
+
+        ── por cada respuesta del usuario ──
+
+[voice-bridge] transcribe audio → POST /api/voice/transcription
+  { session_id, transcript, discord_id }
+        │
+[VoiceInterviewController@handleTranscription]
+  1. Despacha ProcessVoiceInterviewTurnJob (queue 'voice') — background
+  2. Devuelve StreamedResponse con TalkatorAgent (respuesta conversacional en inglés)
+        │
+  ┌── background job ──────────────────────────────────────────┐
+  │ ProcessVoiceInterviewTurnJob                               │
+  │                                                            │
+  │ [VoiceInterviewTurnAgent] — UNA sola llamada LLM          │
+  │   Extrae campos del transcript + genera siguiente pregunta │
+  │   Output: { response_type, extracted, next_question }      │
+  │                                                            │
+  │ [VoiceAnalystAgent] — PHP puro                            │
+  │   Evalúa completitud del archetype actual                  │
+  │                                                            │
+  │   is_complete? → advanceToNextArchetype()                  │
+  │   todos completos? → pushNextQuestion('session_complete')  │
+  │   else → pushNextQuestion(next_question)                   │
+  └────────────────────────────────────────────────────────────┘
+        │
+[voice-bridge polls GET /api/voice/next-question/{sessionId} cada 500ms]
+  → Consume pregunta (LPOP atómico)
+  → Sintetiza a voz y la reproduce en el canal
+```
+
+**Polling endpoints (voice-bridge ↔ Laravel):**
+
+| Endpoint | Método | Propósito |
+|---|---|---|
+| `/api/voice/pending-start` | GET | Señal de inicio de sesión (LPOP Redis) |
+| `/api/voice/session/start` | POST | Crea sesión, devuelve opening question |
+| `/api/voice/transcription` | POST | Entrega transcript, retorna TalkatorAgent streaming |
+| `/api/voice/next-question/{sessionId}` | GET | Siguiente pregunta del pipeline (LPOP Redis) |
+
+**Autenticación:** middleware `VerifyVoiceBridgeSecret` — header `X-Voice-Bridge-Secret`.
+
+**Estado de sesión (Redis, VoiceInterviewSessionManager):**
+- Cola de archetypes incompletos del jugador
+- Campos extraídos acumulativos por archetype
+- Historial de conversación (para contexto del agente)
+- Clave de siguiente pregunta pendiente: `voice_next_question_{sessionId}`
+
+**Nota TTS:** Speechmatics solo tiene voces en inglés. Todas las respuestas del agente se traducen a inglés con `VoiceTextTranslator::toEnglish()` antes de ser sintetizadas. La sesión interna puede correr en `es` o `en` según el locale del jugador.
+
+**Archivos clave:**
+- `app/Http/Controllers/Api/Voice/VoiceInterviewController.php`
+- `app/Jobs/Voice/ProcessVoiceInterviewTurnJob.php`
+- `app/Infrastructure/Ai/Agents/VoiceInterviewTurnAgent.php`
+- `app/Infrastructure/Ai/Agents/VoiceAnalystAgent.php`
+- `app/Infrastructure/Ai/Agents/TalkatorAgent.php`
+- `app/Services/Voice/VoiceInterviewSessionManager.php`
+- `app/Services/Voice/VoiceTextTranslator.php`
+- `app/Http/Middleware/VerifyVoiceBridgeSecret.php`
+- `voice-bridge/` — microservicio Node.js
+
+---
+
+## 5. `/create_vault`
 
 **Descripción:** Crea un nuevo Vault (mundo/servidor de juego) dentro del arquetipo seleccionado. Genera automáticamente los canales de Discord correspondientes.
 
@@ -100,7 +309,7 @@ Referencia completa de todos los slash commands disponibles en el bot de MUDRAIS
 
 ---
 
-## 4. `/create`
+## 6. `/create`
 
 **Descripción:** Crea un contexto (personaje, locación, ítem u otro tipo de entidad) dentro del Vault activo del canal. Debe ejecutarse desde el canal principal del Vault.
 
@@ -138,7 +347,7 @@ Referencia completa de todos los slash commands disponibles en el bot de MUDRAIS
 
 ---
 
-## 5. `/actividad crear`
+## 7. `/actividad crear`
 
 **Descripción:** Publica una búsqueda de grupo (LFG) vinculando hasta dos contextos del Vault (personaje, locación, etc.) y añadiendo un título y descripción libre. La actividad se indexa en Qdrant con vectores semánticos independientes por contexto para el matchmaking.
 
@@ -209,7 +418,7 @@ Referencia completa de todos los slash commands disponibles en el bot de MUDRAIS
 
 ---
 
-## 6. `/buscar-actividad`
+## 8. `/buscar-actividad`
 
 **Descripción:** Busca actividades compatibles en el Vault actual usando una firma de búsqueda multi-vector ponderada. No requiere haber publicado una actividad previamente — busca entre las de otros jugadores.
 
@@ -279,7 +488,7 @@ Referencia completa de todos los slash commands disponibles en el bot de MUDRAIS
 
 ---
 
-## 7. `/buscar-partner`
+## 9. `/buscar-partner`
 
 **Descripción:** Busca jugadores compatibles (no actividades) usando el vector de perfil del jugador. Matchmaking de personas, no de actividades.
 
@@ -292,7 +501,7 @@ Referencia completa de todos los slash commands disponibles en el bot de MUDRAIS
 
 ---
 
-## 8. `/status`
+## 10. `/status`
 
 **Descripción:** Muestra el estado actual del jugador: monedas, energía, perfil y estado del tutorial.
 
@@ -304,7 +513,7 @@ Referencia completa de todos los slash commands disponibles en el bot de MUDRAIS
 
 ---
 
-## 9. Registro de Comandos en Discord
+## 11. Registro de Comandos en Discord
 
 Los comandos deben registrarse via la API de Discord o el Developer Portal. Para registrar todos de una vez con la CLI de Discord:
 
@@ -321,13 +530,15 @@ curl -X PUT \
 
 ### Tabla resumen de interacciones
 
-| Comando | Respuesta inicial | Job despachado | Queue |
-|---|---|---|---|
-| `/registro` | type:4 embed | ninguno | — |
-| `/ficha` | type:9 modal | `ProcessFichaModalJob` | default |
-| `/create_vault` | type:9 modal | `ProcessVaultOnboardingJob` | default |
-| `/create` | type:4 embed + botón | `ProcessCreateContextJob` | default |
-| `/actividad crear` | type:9 modal | `ProcessCreateActividadJob` | default |
-| `/buscar-actividad` | type:5 deferred | `ProcessBuscarActividadJob` | high |
-| `/buscar-partner` | type:5 deferred | `ProcessBuscarJob` | high |
-| `/status` | type:5 deferred | `ProcessStatusJob` | default |
+| Comando | Bot | Respuesta inicial | Job despachado | Queue |
+|---|---|---|---|---|
+| `/registro` | Alpha | type:4 embed | ninguno | — |
+| `/ficha` | Alpha | type:9 modal | `ProcessFichaModalJob` | default |
+| `/interview` | Alpha | type:5 deferred | `ProcessInterviewTurnJob` | default |
+| `/voice-interview` | Gamma | type:5 deferred ephemeral | (señal Redis → voice-bridge) | voice |
+| `/create_vault` | Alpha | type:9 modal | `ProcessVaultOnboardingJob` | default |
+| `/create` | Alpha | type:4 embed + botón | `ProcessCreateContextJob` | default |
+| `/actividad crear` | Alpha | type:9 modal | `ProcessCreateActividadJob` | default |
+| `/buscar-actividad` | Alpha | type:5 deferred | `ProcessBuscarActividadJob` | high |
+| `/buscar-partner` | Alpha | type:5 deferred | `ProcessBuscarJob` | high |
+| `/status` | Alpha | type:5 deferred | `ProcessStatusJob` | default |
