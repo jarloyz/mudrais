@@ -3,6 +3,7 @@
 namespace App\Application\Services;
 
 use App\Domains\Matchmaking\Models\Archetype;
+use App\Models\AppSetting;
 use App\Models\Guild;
 use App\Models\GuildProfile;
 use Illuminate\Support\Facades\Log;
@@ -37,6 +38,7 @@ class GuildValidationService
         $guild = Guild::create([
             'discord_guild_id' => $discordGuildId,
             'is_active'        => true,
+            'is_bot_allowed'   => AppSetting::bool('guild_bot_allowed_default', true),
             'plan_tier'        => 1,
             'profile_quota'    => 50,
         ]);

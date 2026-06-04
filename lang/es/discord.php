@@ -227,4 +227,7 @@ return [
     'voice_interview_already_active'  => '⚠️ Ya tienes una sesión de voz activa en este servidor.',
     'voice_interview_no_guild'        => '❌ Este comando solo funciona dentro de un servidor.',
 
+    // ── GUILD ACCESS ─────────────────────────────────────────────────────────
+    'guild_not_registered'            => '⛔ Tu guild no está registrada en MUDRAIS. Por favor contacta al equipo de MUDRAIS para habilitarla.',
+
 ];

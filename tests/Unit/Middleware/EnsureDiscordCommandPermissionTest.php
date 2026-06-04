@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Middleware;
 
+use App\Domains\Community\Contracts\PlayerRepositoryInterface;
 use App\Domains\Community\Models\Guild;
 use App\Domains\Community\Models\Player;
 use App\Http\Middleware\EnsureDiscordCommandPermission;
@@ -20,7 +21,10 @@ class EnsureDiscordCommandPermissionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->middleware = new EnsureDiscordCommandPermission(app(GuildMembershipService::class));
+        $this->middleware = new EnsureDiscordCommandPermission(
+            app(GuildMembershipService::class),
+            app(PlayerRepositoryInterface::class),
+        );
     }
 
     private function makeArchetype(): Archetype
@@ -174,5 +178,53 @@ class EnsureDiscordCommandPermissionTest extends TestCase
         $response = $this->middleware->handle($request, fn ($req) => response()->json(['passed' => true]));
 
         $this->assertTrue(json_decode($response->getContent(), true)['passed']);
+    }
+
+    // ── HU-002: Verificación de inyección de PlayerRepositoryInterface ────────
+
+    // Verifica que el repositorio inyectado recibe el discord_id correcto
+    public function test_player_repository_findByDiscordId_called_with_discord_user_id(): void
+    {
+        $playerRepo = $this->createMock(PlayerRepositoryInterface::class);
+        $playerRepo->expects($this->once())
+            ->method('findByDiscordId')
+            ->with('user_di_check_001')
+            ->willReturn(null);
+
+        $middleware = new EnsureDiscordCommandPermission(
+            app(GuildMembershipService::class),
+            $playerRepo,
+        );
+
+        $guild   = $this->makeGuild('guild_di_test');
+        $request = $this->makeRequest([
+            'type'     => 2,
+            'guild_id' => 'guild_di_test',
+            'data'     => ['name' => 'registro'],
+            'member'   => ['user' => ['id' => 'user_di_check_001']],
+        ], $guild);
+
+        $middleware->handle($request, fn ($req) => response()->json(['passed' => true]));
+    }
+
+    // Verifica que para DMs (sin guild_id) el repositorio NO es consultado
+    public function test_player_repository_not_called_for_dm_interactions(): void
+    {
+        $playerRepo = $this->createMock(PlayerRepositoryInterface::class);
+        $playerRepo->expects($this->never())
+            ->method('findByDiscordId');
+
+        $middleware = new EnsureDiscordCommandPermission(
+            app(GuildMembershipService::class),
+            $playerRepo,
+        );
+
+        $request = $this->makeRequest([
+            'type' => 2,
+            'data' => ['name' => 'status'],
+            'user' => ['id' => 'dm_user_456'],
+        ]);
+
+        $middleware->handle($request, fn ($req) => response()->json(['passed' => true]));
     }
 }

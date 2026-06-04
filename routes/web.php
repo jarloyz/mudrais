@@ -72,6 +72,9 @@ use App\Http\Controllers\Api\V2\MatchmakingController;
 use App\Http\Controllers\Api\V2\SceneController;
 use Illuminate\Support\Facades\Auth;
 
+// ── Domain-agnostic: webhooks and API ────────────────────────────────────────
+// Discord calls these URLs directly — no domain constraint.
+
 Route::prefix('api/v2')->group(function () {
     Route::post('/chat', [ChatController::class, 'store']);
     Route::post('/chat/stream', [ChatController::class, 'stream']);
@@ -90,53 +93,51 @@ Route::prefix('api/v2')->group(function () {
     Route::post('/matchmaking/search', [MatchmakingController::class, 'search']);
 });
 
-// Guild lifecycle — llamado por el bot al ser invitado a un servidor
 Route::post('/api/guilds/register', [GuildLifecycleController::class, 'register'])
     ->name('guilds.register')
     ->middleware('throttle:60,1');
 
-// Ruta A: login de usuario (scope: identify email)
-Route::prefix('auth/discord')->name('auth.discord.')->group(function () {
-    Route::get('/redirect', [DiscordOAuthController::class, 'redirect'])->name('redirect');
-    Route::get('/callback', [DiscordOAuthController::class, 'callback'])->name('callback');
-});
+// ── app.{base_domain}: OAuth login and bot install flows ─────────────────────
+// Constrained to app subdomain so session cookies set here stay isolated from
+// the root-domain landing page, and Discord redirect URIs point to a single host.
 
-// Error de login OAuth (público)
-Route::get('/discord/login/error', fn () => view('discord.login-error'))
-    ->name('discord.login.error');
+Route::domain('app.' . config('app.base_domain'))->group(function () {
 
-// Ruta B: instalación del bot — el redirect y callback viven fuera del panel Filament
-// porque Discord redirige a estas URLs directamente.
-Route::prefix('invite/bot')->name('invite.bot.')->middleware('auth:player_web')->group(function () {
-    Route::get('/redirect', [BotInviteController::class, 'redirect'])->name('redirect');
-    Route::get('/callback', [BotInviteController::class, 'callback'])->name('callback');
-});
+    // Error page shown after a failed OAuth flow (public, no auth required)
+    Route::get('/discord/login/error', fn () => view('discord.login-error'))
+        ->name('discord.login.error');
 
-// ── Beta ─────────────────────────────────────────────────────────────────────
+    // ── Production app ────────────────────────────────────────────────────────
+    Route::prefix('auth/discord')->name('auth.discord.')->group(function () {
+        Route::get('/redirect', [DiscordOAuthController::class, 'redirect'])->name('redirect');
+        Route::get('/callback', [DiscordOAuthController::class, 'callback'])->name('callback');
+    });
 
-// Ruta A (beta): login de usuario via app Discord beta (scope: identify email)
-Route::prefix('auth/discord-beta')->name('auth.discord-beta.')->group(function () {
-    Route::get('/redirect', [DiscordBetaOAuthController::class, 'redirect'])->name('redirect');
-    Route::get('/callback', [DiscordBetaOAuthController::class, 'callback'])->name('callback');
-});
+    Route::prefix('invite/bot')->name('invite.bot.')->middleware('auth:player_web')->group(function () {
+        Route::get('/redirect', [BotInviteController::class, 'redirect'])->name('redirect');
+        Route::get('/callback', [BotInviteController::class, 'callback'])->name('callback');
+    });
 
-// Ruta B (beta): instalación del bot beta
-Route::prefix('invite/bot-beta')->name('invite.bot-beta.')->middleware('auth:player_web')->group(function () {
-    Route::get('/redirect', [BotBetaInviteController::class, 'redirect'])->name('redirect');
-    Route::get('/callback', [BotBetaInviteController::class, 'callback'])->name('callback');
-});
+    // ── Beta app ──────────────────────────────────────────────────────────────
+    Route::prefix('auth/discord-beta')->name('auth.discord-beta.')->group(function () {
+        Route::get('/redirect', [DiscordBetaOAuthController::class, 'redirect'])->name('redirect');
+        Route::get('/callback', [DiscordBetaOAuthController::class, 'callback'])->name('callback');
+    });
 
-// ── Gamma ─────────────────────────────────────────────────────────────────────
+    Route::prefix('invite/bot-beta')->name('invite.bot-beta.')->middleware('auth:player_web')->group(function () {
+        Route::get('/redirect', [BotBetaInviteController::class, 'redirect'])->name('redirect');
+        Route::get('/callback', [BotBetaInviteController::class, 'callback'])->name('callback');
+    });
 
-// Ruta A (gamma): login de usuario via app Discord gamma (scope: identify email)
-Route::prefix('auth/discord-gamma')->name('auth.discord-gamma.')->group(function () {
-    Route::get('/redirect', [DiscordGammaOAuthController::class, 'redirect'])->name('redirect');
-    Route::get('/callback', [DiscordGammaOAuthController::class, 'callback'])->name('callback');
-});
+    // ── Gamma app ─────────────────────────────────────────────────────────────
+    Route::prefix('auth/discord-gamma')->name('auth.discord-gamma.')->group(function () {
+        Route::get('/redirect', [DiscordGammaOAuthController::class, 'redirect'])->name('redirect');
+        Route::get('/callback', [DiscordGammaOAuthController::class, 'callback'])->name('callback');
+    });
 
-// Ruta B (gamma): instalación del bot de voz gamma
-Route::prefix('invite/bot-gamma')->name('invite.bot-gamma.')->middleware('auth:player_web')->group(function () {
-    Route::get('/redirect', [BotGammaInviteController::class, 'redirect'])->name('redirect');
-    Route::get('/callback', [BotGammaInviteController::class, 'callback'])->name('callback');
+    Route::prefix('invite/bot-gamma')->name('invite.bot-gamma.')->middleware('auth:player_web')->group(function () {
+        Route::get('/redirect', [BotGammaInviteController::class, 'redirect'])->name('redirect');
+        Route::get('/callback', [BotGammaInviteController::class, 'callback'])->name('callback');
+    });
 });
 

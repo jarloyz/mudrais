@@ -2,17 +2,38 @@
 
 namespace App\Http\Middleware;
 
-use App\Domains\Community\Models\Player;
+use App\Domains\Community\Contracts\PlayerRepositoryInterface;
 use App\Services\Auth\GuildMembershipService;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * Middleware de autorización para interacciones Discord.
+ *
+ * Verifica rol requerido, acceso de guild y registro de arquetipo.
+ * Delega la búsqueda del jugador a PlayerRepositoryInterface para
+ * mantener el aislamiento de capas (sin Eloquent directo en middleware).
+ */
 class EnsureDiscordCommandPermission
 {
-    public function __construct(private readonly GuildMembershipService $membershipService) {}
+    /**
+     * @param GuildMembershipService    $membershipService  Gestiona pertenencia a guilds.
+     * @param PlayerRepositoryInterface $playerRepository   Puerto de búsqueda de jugadores.
+     */
+    public function __construct(
+        private readonly GuildMembershipService $membershipService,
+        private readonly PlayerRepositoryInterface $playerRepository,
+    ) {}
 
+    /**
+     * Evalúa permisos y adjunta el Player al request si es autorizado.
+     *
+     * @param  Request  $request
+     * @param  Closure  $next
+     * @return Response
+     */
     public function handle(Request $request, Closure $next): Response
     {
         $interactionType = (int) $request->input('type');
@@ -43,7 +64,32 @@ class EnsureDiscordCommandPermission
             return $next($request);
         }
 
-        $player = Player::where('discord_id', $discordUserId)->first();
+        // Verificación de acceso de guild — solo aplica al comando /create-vault
+        // La guild ya fue cargada (o auto-creada) por EnsureDiscordGuildRegistered
+        if ($commandName === 'create-vault') {
+            $guild = $request->attributes->get('guild');
+
+            if (! $guild?->is_bot_allowed) {
+                Log::warning('[EnsureDiscordCommandPermission@handle] Guild no autorizada para create-vault', [
+                    'discord_guild_id' => $discordGuildId,
+                    'is_bot_allowed'   => $guild?->is_bot_allowed,
+                ]);
+
+                return response()->json([
+                    'type' => 4,
+                    'data' => [
+                        'content' => __('discord.guild_not_registered'),
+                        'flags'   => 64,
+                    ],
+                ]);
+            }
+
+            Log::debug('[EnsureDiscordCommandPermission@handle] Guild autorizada para create-vault', [
+                'discord_guild_id' => $discordGuildId,
+            ]);
+        }
+
+        $player = $this->playerRepository->findByDiscordId($discordUserId);
 
         if (! $player) {
             // Comandos públicos (como /registro) permiten acceso sin Player registrado

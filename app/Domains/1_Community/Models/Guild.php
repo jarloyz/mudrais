@@ -18,12 +18,14 @@ class Guild extends Model
         'onboarding_channel_id',
         'stripe_id',
         'is_active',
+        'is_bot_allowed',
         'plan_tier',
         'profile_quota',
     ];
 
     protected $casts = [
-        'is_active' => 'boolean',
+        'is_active'      => 'boolean',
+        'is_bot_allowed' => 'boolean',
     ];
 
     public function members(): HasMany
