@@ -11,7 +11,8 @@ class ProductionComposeTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->repoRoot = realpath(base_path('../'));
+        // compose + docker/ + .env.production.example all live inside laravel_app/
+        $this->repoRoot = base_path();
     }
 
     // ── docker-compose.prod.yml ───────────────────────────────────────────────

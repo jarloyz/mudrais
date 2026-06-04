@@ -1,0 +1,136 @@
+services:
+
+  # ── Reverse proxy + SSL termination ────────────────────────────────────────
+  nginx:
+    image: nginx:1.30-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/certbot/conf:/etc/letsencrypt:ro
+      - ./docker/certbot/www:/var/www/certbot:ro
+      - ./public:/var/www/html/public:ro
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      - mudrais_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health-nginx"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── PHP-FPM application ─────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile.prod
+    restart: unless-stopped
+    volumes:
+      - .:/var/www/html
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/99-mudrais.ini:ro
+    environment:
+      - APP_ENV=production
+    env_file:
+      - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mudrais_net
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 $(cat /usr/local/var/run/php-fpm.pid 2>/dev/null) 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Horizon queue worker ────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile.prod
+    restart: unless-stopped
+    command: php artisan horizon
+    volumes:
+      - .:/var/www/html
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/99-mudrais.ini:ro
+    env_file:
+      - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mudrais_net
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-mudrais}
+      POSTGRES_USER: ${DB_USERNAME:-mudrais}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    networks:
+      - mudrais_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-mudrais} -d ${DB_DATABASE:-mudrais}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - redis_data:/data
+    networks:
+      - mudrais_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Qdrant vector database ──────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.13.4
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - mudrais_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Certbot (SSL certificate management) ───────────────────────────────────
+  # Usage:
+  #   Initial: docker compose -f docker-compose.prod.yml run --rm certbot certonly ...
+  #   Renew:   docker compose -f docker-compose.prod.yml run --rm certbot renew
+  certbot:
+    image: certbot/certbot:v3.3.0
+    volumes:
+      - ./docker/certbot/conf:/etc/letsencrypt
+      - ./docker/certbot/www:/var/www/certbot
+
+networks:
+  mudrais_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:

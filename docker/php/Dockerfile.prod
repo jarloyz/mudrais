@@ -1,0 +1,42 @@
+FROM php:8.4-fpm-alpine
+
+RUN apk add --no-cache \
+    postgresql-dev \
+    oniguruma-dev \
+    libxml2-dev \
+    libzip-dev \
+    icu-dev \
+    freetype-dev \
+    libjpeg-turbo-dev \
+    libpng-dev \
+    zip \
+    unzip \
+    curl \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) \
+        pdo_pgsql \
+        pgsql \
+        mbstring \
+        xml \
+        zip \
+        bcmath \
+        intl \
+        gd \
+        pcntl \
+        opcache \
+    && pecl install redis \
+    && docker-php-ext-enable redis opcache \
+    && rm -rf /tmp/pear
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/html
+
+RUN addgroup -g 1000 -S www && \
+    adduser -u 1000 -S www -G www
+
+USER www
+
+EXPOSE 9000
+
+CMD ["php-fpm"]
