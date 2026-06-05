@@ -90,3 +90,5 @@ database/seeders/test_qdrant.json
 /docs/registro_flow.md
 /voice-bridge/node_modules/*
 /pm/
+mudrais_20260604.dump
+qdrant_20260604.tar.gz
