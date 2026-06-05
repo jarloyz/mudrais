@@ -78,7 +78,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_DATABASE:-mudrais}
       POSTGRES_USER: ${DB_USERNAME:-mudrais}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     networks:
       - mudrais_net
     healthcheck:
