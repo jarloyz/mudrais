@@ -103,6 +103,9 @@ Route::post('/api/guilds/register', [GuildLifecycleController::class, 'register'
 
 Route::domain('app.' . config('app.base_domain'))->group(function () {
 
+    // Root of app subdomain → Filament admin panel
+    Route::redirect('/', '/app');
+
     // Error page shown after a failed OAuth flow (public, no auth required)
     Route::get('/discord/login/error', fn () => view('discord.login-error'))
         ->name('discord.login.error');
