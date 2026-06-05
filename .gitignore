@@ -91,4 +91,5 @@ database/seeders/test_qdrant.json
 /voice-bridge/node_modules/*
 /pm/
 mudrais_20260604.dump
+qdrant_20260604.tar.gzdocker-compose.prod.yml
 qdrant_20260604.tar.gz

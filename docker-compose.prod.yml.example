@@ -116,6 +116,17 @@ services:
       timeout: 10s
       retries: 3
 
+  # ── Landing page (mudrais.com) ───────────────────────────────────────────────
+  # Clone the landing repo to /home/deploy/mudrais-landing on the VPS.
+  # Nginx proxies mudrais.com to this container.
+  landing:
+    image: nginx:1.30-alpine
+    restart: unless-stopped
+    volumes:
+      - ${LANDING_PATH:-/home/deploy/mudrais-landing}:/usr/share/nginx/html:ro
+    networks:
+      - mudrais_net
+
   # ── Certbot (SSL certificate management) ───────────────────────────────────
   # Usage:
   #   Initial: docker compose -f docker-compose.prod.yml run --rm certbot certonly ...
