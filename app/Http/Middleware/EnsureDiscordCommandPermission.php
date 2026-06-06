@@ -138,7 +138,7 @@ class EnsureDiscordCommandPermission
 
         // --- INICIO VERIFICACIÓN DE ARQUETIPO Y REGISTRO ---
         // 'interview' y 'profile' son mecanismos de registro — no requieren perfil previo
-        $commandsExcludedFromArchetypeCheck = ['create-vault', 'register', 'search', 'interview', 'profile'];
+        $commandsExcludedFromArchetypeCheck = ['create-vault', 'register', 'search', 'help'];
         $channelId = $request->input('channel_id');
         if ($channelId && ! in_array($commandName, $commandsExcludedFromArchetypeCheck)) {
             $vault = \App\Domains\Narrative\Models\Vault::with('archetypes')->where('discord_channel_id', (string) $channelId)->first();

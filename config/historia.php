@@ -15,7 +15,7 @@ return [
         'scene_opening_max_chars' => (int) env('HISTORIA_SIMPLE_MEMORY_SCENE_OPENING_MAX_CHARS', 1200),
     ],
     // Comandos accesibles sin estar registrado como Player (sin verificación de rol ni energía)
-    'discord_public_commands' => ['register'],
+    'discord_public_commands' => ['register', 'help'],
 
     // Roles mínimos requeridos por comando. Si el comando no aparece → se permite a todos.
     'discord_command_permissions' => [
@@ -28,15 +28,14 @@ return [
         'player-kick'       => ['admin', 'moderator'],
         'actividad-fin'     => ['admin', 'moderator'],
         'register'          => ['admin', 'moderator', 'player'],
-        'profile'           => ['admin', 'moderator', 'player'],
         'status'            => ['admin', 'moderator', 'player'],
     ],
 
     // Costo de energía base por comando (0 = gratuito). Puede sobreescribirse por guild en BD.
     'discord_command_energy' => [
         'register'          => 0,
-        'profile'           => 0,
         'status'            => 0,
+        'help'              => 0,
         'setup'             => 0,
         'setup-onboarding'  => 0,
         'vault-crear'       => 0,

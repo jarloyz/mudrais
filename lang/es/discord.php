@@ -230,4 +230,11 @@ return [
     // ── GUILD ACCESS ─────────────────────────────────────────────────────────
     'guild_not_registered'            => '⛔ Tu guild no está registrada en MUDRAIS. Por favor contacta al equipo de MUDRAIS para habilitarla.',
 
+    // ── HELP ─────────────────────────────────────────────────────────────────
+    'help_title'       => '📖 ¿Cómo funciona MUDRAIS?',
+    'help_description' => "MUDRAIS conecta jugadores de rol mediante inteligencia artificial.\nElige un arquetipo, crea tu vault y empieza a encontrar compañeros de partida.",
+    'help_setup'       => "**⚙️ Configuración inicial (admin del servidor)**\n1. Entra a la web y haz auth con Discord\n2. Desde la web, haz clic en **Invitar Bot**\n3. Corre `/create-vault` y elige un arquetipo:\n   • **Roleplay Text** — rol escrito colaborativo\n   • **Semantic Reading** — lectura con análisis semántico\n   • **Team Matcher** — formación de equipos",
+    'help_player'      => "**🎮 Comandos de jugador**\n`/register` — Crea o edita tu perfil *(siempre disponible)*\n`/status` — Consulta tu energía, monedas y ELO\n`/create` — Añade personajes, lugares o lore al vault\n`/search` — Encuentra partners o actividades compatibles\n`/actividad` — Publica una búsqueda de grupo",
+    'help_footer'      => 'MUDRAIS · Usa /register para empezar',
+
 ];

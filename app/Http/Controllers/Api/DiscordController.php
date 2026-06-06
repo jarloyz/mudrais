@@ -124,6 +124,10 @@ class DiscordController extends Controller
                 $type === 3
                     => $this->handleMessageComponent($interaction, $token),
 
+                // ── /help (ES: /ayuda): siempre disponible, sin player requerido ──
+                $type === 2 && $command === 'help'
+                    => $this->handleHelpCommand(),
+
                 // ── /register (ES: /registro): gatekeeper de estado ──────────
                 $type === 2 && $command === 'register'
                     => $this->handleRegistroCommand($interaction, $token),
@@ -140,8 +144,8 @@ class DiscordController extends Controller
                 $type === 2 && $command === 'create'
                     => $this->handleCreateContextCommand($interaction),
 
-                // ── /actividad: modal inmediato con ctx1 + ctx2 ───────────────
-                $type === 2 && $command === 'actividad'
+                // ── /activity (ES: /actividad): modal inmediato con ctx1 + ctx2 ──
+                $type === 2 && $command === 'activity'
                     => $this->handleActividadCommand($interaction),
 
                 // ── /buscar-actividad: deferred → búsqueda multi-vector ────────
@@ -196,6 +200,36 @@ class DiscordController extends Controller
     // =========================================================================
     // Slash commands (type 2)
     // =========================================================================
+
+    private function handleHelpCommand(): JsonResponse
+    {
+        Log::debug('[DiscordController@handleHelpCommand] /help invocado');
+
+        return response()->json([
+            'type' => 4,
+            'data' => [
+                'flags'  => 64,
+                'embeds' => [[
+                    'title'       => __('discord.help_title'),
+                    'description' => __('discord.help_description'),
+                    'color'       => 0x5865F2,
+                    'fields'      => [
+                        [
+                            'name'   => "\u{200B}",
+                            'value'  => __('discord.help_setup'),
+                            'inline' => false,
+                        ],
+                        [
+                            'name'   => "\u{200B}",
+                            'value'  => __('discord.help_player'),
+                            'inline' => false,
+                        ],
+                    ],
+                    'footer' => ['text' => __('discord.help_footer')],
+                ]],
+            ],
+        ]);
+    }
 
     /**
      * /voice-interview (gamma) — Encola la señal en Redis para que el voice-bridge
@@ -554,7 +588,7 @@ class DiscordController extends Controller
             ]);
         }
 
-        if ($command === 'search' && $focused['name'] === 'objetivo') {
+        if ($command === 'search' && $focused['name'] === 'target') {
             $channelId   = $interaction['channel_id'] ?? null;
             $suggestions = $this->vaultOnboardingService->getSearchTargetSuggestions(
                 $focused['value'] ?? '',
@@ -578,7 +612,7 @@ class DiscordController extends Controller
             return response()->json(['type' => 8, 'data' => ['choices' => $suggestions]]);
         }
 
-        if ($command === 'actividad') {
+        if ($command === 'activity') {
             $subOptions = $interaction['data']['options'][0]['options'] ?? [];
             $focused    = collect($subOptions)->firstWhere('focused', true) ?? $focused;
             $channelId  = $interaction['channel_id'] ?? null;
@@ -629,9 +663,9 @@ class DiscordController extends Controller
                         $discordId,
                         $guildId,
                         $interaction['channel_id'] ?? null,
-                        $this->extractOptionValue($interaction, 'objetivo'),
-                        $this->extractOptionValue($interaction, 'texto'),
-                        $this->extractOptionValue($interaction, 'periodo')
+                        $this->extractOptionValue($interaction, 'target'),
+                        $this->extractOptionValue($interaction, 'prompt'),
+                        $this->extractOptionValue($interaction, 'period')
                     )
                 )
                 : $this->ephemeralError(__('discord.user_not_found')),
@@ -2453,7 +2487,7 @@ class DiscordController extends Controller
     private function handleBuscarActividadCommand(array $interaction, string $token): JsonResponse
     {
         $options   = $interaction['data']['options'] ?? [];
-        $texto     = collect($options)->firstWhere('name', 'texto')['value'] ?? null;
+        $texto     = collect($options)->firstWhere('name', 'prompt')['value'] ?? null;
         $contextoId = collect($options)->firstWhere('name', 'contexto')['value'] ?? null;
         $channelId = $interaction['channel_id'] ?? null;
         $discordId = $this->extractDiscordId($interaction);
@@ -2493,8 +2527,8 @@ class DiscordController extends Controller
     private function handleActividadCommand(array $interaction): JsonResponse
     {
         $subOptions = $interaction['data']['options'][0]['options'] ?? [];
-        $ctx1Id     = collect($subOptions)->firstWhere('name', 'contexto_principal')['value'] ?? null;
-        $ctx2Id     = collect($subOptions)->firstWhere('name', 'contexto_secundario')['value'] ?? null;
+        $ctx1Id     = collect($subOptions)->firstWhere('name', 'main_context')['value'] ?? null;
+        $ctx2Id     = collect($subOptions)->firstWhere('name', 'secondary_context')['value'] ?? null;
         $channelId  = $interaction['channel_id'] ?? null;
         $discordId  = $this->extractDiscordId($interaction);
 
