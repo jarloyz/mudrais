@@ -61,7 +61,7 @@ The entire project is run using **Laravel Sail** to avoid compatibility issues a
 ### 1. Configuration and Environment Variables
 Clone the project and navigate to the application folder:
 ```bash
-cd laravel_app
+cd mudrais
 ```
 
 Create the configuration file by copying the example:
